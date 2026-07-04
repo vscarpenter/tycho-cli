@@ -311,6 +311,27 @@ fn live_json_emits_a_snapshot() {
 }
 
 #[test]
+fn blocks_json_groups_usage_into_windows() {
+    let value = stdout_json(tycho().args(["blocks", "--json"]));
+    assert_eq!(value["command"], "blocks");
+    let blocks = value["blocks"].as_array().unwrap();
+    assert!(!blocks.is_empty());
+    let b0 = &blocks[0];
+    assert!(b0["start"].is_string());
+    assert!(b0["end"].is_string());
+    assert!(b0["tokens"]["total"].is_number());
+    // Fixtures are all in the past, so no active block.
+    assert_eq!(b0["active"], false);
+    // Grand total matches the whole fixture corpus (see the daily test).
+    assert_eq!(value["totals"]["total"], 1_510);
+}
+
+#[test]
+fn blocks_csv_is_a_usage_error() {
+    tycho().args(["blocks", "--csv"]).assert().code(2);
+}
+
+#[test]
 fn invalid_pricing_file_is_a_runtime_error() {
     tycho()
         .args(["daily", "--pricing", "/definitely/not/a/file.toml"])

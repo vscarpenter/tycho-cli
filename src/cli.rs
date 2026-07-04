@@ -51,6 +51,8 @@ pub enum Command {
     Doctor,
     /// Live dashboard: today's usage, burn rate, and the active session
     Live,
+    /// Per 5-hour billing block: tokens, cost, and the active block's projection
+    Blocks,
 }
 
 /// `--sort` values for the sessions report.

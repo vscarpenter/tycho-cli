@@ -196,6 +196,15 @@ fn render(
                 table::doctor(&report)
             }
         }
+        Command::Blocks => {
+            reject_csv(global.csv);
+            let report = tycho::blocks::blocks(outcome.events, tz, since, until, Utc::now());
+            if global.json {
+                json::blocks(&report, tz.name())
+            } else {
+                table::blocks(&report, tz, global.precise)
+            }
+        }
         Command::Live => unreachable!("live is handled in run_live before render"),
     }
 }
