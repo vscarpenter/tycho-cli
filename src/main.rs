@@ -47,7 +47,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     }
     Coster::new(&pricing, cli.global.mode.into()).apply(&mut outcome.events);
 
-    println!("{}", render(&cli, tz, &roots, outcome, unpriced));
+    println!("{}", render(&cli, tz, &roots, outcome, unpriced, &pricing));
     Ok(())
 }
 
@@ -87,6 +87,7 @@ fn render(
     roots: &[PathBuf],
     outcome: ScanOutcome,
     unpriced: Vec<String>,
+    pricing: &PricingTable,
 ) -> String {
     let global = &cli.global;
     let (since, until) = (global.since, global.until);
@@ -137,6 +138,15 @@ fn render(
                 json::models(&report, tz.name())
             } else {
                 table::models(&report, global.precise)
+            }
+        }
+        Command::Cache => {
+            reject_csv(global.csv);
+            let report = tycho::cache::cache(outcome.events, tz, since, until, pricing);
+            if global.json {
+                json::cache(&report, tz.name())
+            } else {
+                table::cache(&report, global.precise)
             }
         }
         Command::Doctor => {

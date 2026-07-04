@@ -8,6 +8,7 @@
 //! network calls at runtime.
 
 pub mod aggregate;
+pub mod cache;
 pub mod cli;
 pub mod cost;
 pub mod dedupe;

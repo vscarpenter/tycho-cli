@@ -188,6 +188,70 @@ pub fn models(report: &ModelsReport, precise: bool) -> String {
     table.to_string()
 }
 
+/// Render the cache-economics report: the headline sentence, then one row
+/// per model plus the total.
+pub fn cache(report: &crate::cache::CacheReport, precise: bool) -> String {
+    let total = &report.total;
+    let headline = match total.leverage {
+        Some(leverage) => format!(
+            "Your effective cost was {}. Without prompt caching it would have been {}.\nCaching saved you {} ({} leverage).\n",
+            money(total.actual_cost, precise),
+            money(total.counterfactual_cost, precise),
+            money(total.savings, precise),
+            leverage_x(Some(leverage)),
+        ),
+        None => "No costed usage in this window.\n".to_owned(),
+    };
+
+    let mut table = new_table([
+        "Model",
+        "Cache Read",
+        "Cache Write",
+        "Hit Rate",
+        "Actual Cost",
+        "No-Cache Cost",
+        "Savings",
+        "Leverage",
+    ]);
+    for row in report.models.iter().chain(std::iter::once(total)) {
+        table.add_row(vec![
+            row.model.clone(),
+            group_thousands(row.totals.cache_read),
+            group_thousands(cache_write(&row.totals)),
+            percent(row.hit_rate),
+            money(row.actual_cost, precise),
+            money(row.counterfactual_cost, precise),
+            money(row.savings, precise),
+            leverage_x(row.leverage),
+        ]);
+    }
+    format!("{headline}\n{table}")
+}
+
+/// `86.2%`, or `-` when undefined.
+fn percent(rate: Option<rust_decimal::Decimal>) -> String {
+    match rate {
+        Some(rate) => format!(
+            "{}%",
+            (rate * rust_decimal::Decimal::from(100u8))
+                .round_dp_with_strategy(1, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+        ),
+        None => "-".to_owned(),
+    }
+}
+
+/// `1.7x`, or `-` when undefined.
+fn leverage_x(leverage: Option<rust_decimal::Decimal>) -> String {
+    match leverage {
+        Some(leverage) => format!(
+            "{}x",
+            leverage
+                .round_dp_with_strategy(1, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+        ),
+        None => "-".to_owned(),
+    }
+}
+
 /// Render the doctor data-health report as key/value rows.
 pub fn doctor(report: &DoctorReport) -> String {
     let mut table = new_table(["Check", "Value"]);

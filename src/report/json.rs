@@ -229,6 +229,51 @@ pub fn models(report: &ModelsReport, timezone: &str) -> String {
 }
 
 #[derive(Serialize)]
+struct CacheRowOut {
+    model: String,
+    tokens: TokensOut,
+    hit_rate: Option<f64>,
+    actual_cost_usd: f64,
+    counterfactual_cost_usd: f64,
+    savings_usd: f64,
+    leverage: Option<f64>,
+}
+
+impl From<&crate::cache::CacheEconomics> for CacheRowOut {
+    fn from(row: &crate::cache::CacheEconomics) -> Self {
+        use rust_decimal::prelude::ToPrimitive;
+        Self {
+            model: row.model.clone(),
+            tokens: TokensOut::from(&row.totals),
+            hit_rate: row.hit_rate.and_then(|r| r.to_f64()),
+            actual_cost_usd: row.actual_cost.to_f64().unwrap_or(0.0),
+            counterfactual_cost_usd: row.counterfactual_cost.to_f64().unwrap_or(0.0),
+            savings_usd: row.savings.to_f64().unwrap_or(0.0),
+            leverage: row.leverage.and_then(|l| l.to_f64()),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct CacheOut {
+    command: &'static str,
+    timezone: String,
+    models: Vec<CacheRowOut>,
+    totals: CacheRowOut,
+}
+
+/// Render the cache-economics report as pretty-printed JSON.
+pub fn cache(report: &crate::cache::CacheReport, timezone: &str) -> String {
+    let out = CacheOut {
+        command: "cache",
+        timezone: timezone.to_owned(),
+        models: report.models.iter().map(CacheRowOut::from).collect(),
+        totals: CacheRowOut::from(&report.total),
+    };
+    to_json(&out)
+}
+
+#[derive(Serialize)]
 struct RootOut {
     path: String,
     exists: bool,

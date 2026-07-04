@@ -264,6 +264,38 @@ fn pricing_override_replaces_model_rates() {
     assert!((cost_of(&value) - 0.000_303).abs() < 1e-9, "{value}");
 }
 
+/// Fixture economics in calculate mode, hand-computed:
+/// opus:   actual = 6832/1e6; counterfactual = (106+60+22+1014)*5/1e6 + 208*25/1e6 = 0.01121
+/// sonnet: actual = 303/1e6;  counterfactual = (10+30+40)*2/1e6 + 20*10/1e6 = 0.00036
+#[test]
+fn cache_report_computes_counterfactual_savings() {
+    let value = stdout_json(tycho().args(["cache", "--json", "--mode", "calculate"]));
+    assert_eq!(value["command"], "cache");
+
+    let opus = &value["models"][0];
+    assert_eq!(opus["model"], "claude-opus-4-8");
+    assert!((opus["hit_rate"].as_f64().unwrap() - 1014.0 / 1202.0).abs() < 1e-9);
+    assert!((opus["counterfactual_cost_usd"].as_f64().unwrap() - 0.01121).abs() < 1e-9);
+
+    let totals = &value["totals"];
+    assert!((totals["actual_cost_usd"].as_f64().unwrap() - 0.007_135).abs() < 1e-9);
+    assert!((totals["counterfactual_cost_usd"].as_f64().unwrap() - 0.01157).abs() < 1e-9);
+    assert!((totals["savings_usd"].as_f64().unwrap() - 0.004_435).abs() < 1e-9);
+    assert!((totals["leverage"].as_f64().unwrap() - 0.01157 / 0.007_135).abs() < 1e-9);
+}
+
+#[test]
+fn cache_table_has_the_headline() {
+    let assert = tycho()
+        .args(["cache", "--mode", "calculate", "--precise"])
+        .assert()
+        .success();
+    let rendered = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(rendered.contains("Caching saved you"), "{rendered}");
+    assert!(rendered.contains("Hit Rate"), "{rendered}");
+    assert!(rendered.contains("claude-opus-4-8"), "{rendered}");
+}
+
 #[test]
 fn invalid_pricing_file_is_a_runtime_error() {
     tycho()

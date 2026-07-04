@@ -45,6 +45,8 @@ pub enum Command {
     Projects,
     /// Rollup by model
     Models,
+    /// Cache economics: hit rate, actual vs no-cache cost, savings
+    Cache,
     /// Data health: files, skipped lines, duplicates, date span
     Doctor,
 }
