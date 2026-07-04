@@ -149,4 +149,4 @@ story.
 
 ## License
 
-MIT OR Apache-2.0 (the Rust convention).
+[MIT](LICENSE) © Vinny Carpenter.
