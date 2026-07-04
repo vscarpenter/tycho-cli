@@ -2,7 +2,9 @@
 
 Everything in this document was verified against real data during Phase 0
 recon (2026-07-04): 1,004 JSONL files, 549 MB, 49,810 assistant records,
-spanning 2026-05-30 → 2026-07-04, written by Claude Code v2.1.156–v2.1.201.
+spanning 2026-05-17 → 2026-07-04, written by Claude Code v2.1.156–v2.1.201.
+(Record timestamps reach further back than file mtimes suggest; Phase 1's
+full scan corrected the span first sampled by mtime.)
 Per the project rule, no field is parsed unless it appears here or in the
 referenced docs. If reality and this document ever disagree, reality wins:
 update this file and flag it.
@@ -123,4 +125,4 @@ counted separately by `doctor`.
   [claude-code#27361](https://github.com/anthropics/claude-code/issues/27361).
   Numbers are estimates for trend analysis, not invoice reconciliation.
 - Claude Code prunes transcripts per `cleanupPeriodDays`; the recon corpus
-  spans only ~5 weeks. `doctor` reports the observed date span.
+  spans only ~7 weeks. `doctor` reports the observed date span.

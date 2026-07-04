@@ -6,6 +6,11 @@
 //! present and absent, and a subagent transcript merging into its session's
 //! project. Expected numbers are hand-computed in each assertion.
 
+// Everything in this file is test code; the crate-wide unwrap ban targets
+// library/binary code (clippy's allow-unwrap-in-tests exempts #[test]
+// functions but not test helpers).
+#![allow(clippy::unwrap_used)]
+
 use assert_cmd::Command;
 
 fn fixtures_dir() -> String {
