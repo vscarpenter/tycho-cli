@@ -17,6 +17,7 @@ pub mod pricing;
 pub mod record;
 pub mod report;
 pub mod scan;
+pub mod tui;
 
 /// The name of the installed binary. Kept in one place (plus the `[[bin]]`
 /// stanza in `Cargo.toml`) so renaming the tool is a two-line change.
