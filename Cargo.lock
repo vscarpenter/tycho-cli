@@ -752,6 +752,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "comfy-table",
+ "iana-time-zone",
  "predicates",
  "serde",
  "serde_json",
