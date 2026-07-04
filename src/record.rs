@@ -56,6 +56,9 @@ pub struct UsageEvent {
     pub usage: TokenUsage,
     /// Pre-computed cost from older Claude Code versions, if present.
     pub cost_usd: Option<f64>,
+    /// Cost in USD, stamped by the cost engine after parsing (zero until
+    /// then; see `crate::cost::Coster::apply`).
+    pub cost: rust_decimal::Decimal,
     /// Identity used to collapse duplicate streaming records.
     pub dedup_key: DedupKey,
 }
@@ -232,6 +235,7 @@ pub fn parse_line(line: &str) -> Result<UsageEvent, SkipReason> {
         model,
         usage: usage.into_token_usage(),
         cost_usd: raw.cost_usd,
+        cost: rust_decimal::Decimal::ZERO,
         dedup_key,
     })
 }

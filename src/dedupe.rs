@@ -72,6 +72,7 @@ mod tests {
                 ..TokenUsage::default()
             },
             cost_usd: None,
+            cost: rust_decimal::Decimal::ZERO,
             dedup_key: key,
         }
     }

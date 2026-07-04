@@ -109,6 +109,41 @@ pub struct GlobalArgs {
     /// Emit CSV (daily, monthly, and sessions only)
     #[arg(long, global = true, conflicts_with = "json")]
     pub csv: bool,
+
+    /// Cost mode: auto uses recorded costUSD when present, calculate
+    /// always computes from tokens, display only sums recorded costUSD
+    #[arg(long, value_enum, default_value_t = ModeArg::Auto, global = true)]
+    pub mode: ModeArg,
+
+    /// Extra pricing TOML merged over the built-in defaults
+    #[arg(long, value_name = "PATH", global = true)]
+    pub pricing: Option<PathBuf>,
+
+    /// Show costs at 4 decimal places instead of 2
+    #[arg(long, global = true)]
+    pub precise: bool,
+}
+
+/// `--mode` values (see [`crate::cost::CostMode`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum ModeArg {
+    /// Recorded costUSD when present, else calculated (the default)
+    #[default]
+    Auto,
+    /// Always calculate from tokens and the pricing table
+    Calculate,
+    /// Only sum recorded costUSD values
+    Display,
+}
+
+impl From<ModeArg> for crate::cost::CostMode {
+    fn from(mode: ModeArg) -> Self {
+        match mode {
+            ModeArg::Auto => Self::Auto,
+            ModeArg::Calculate => Self::Calculate,
+            ModeArg::Display => Self::Display,
+        }
+    }
 }
 
 impl Cli {

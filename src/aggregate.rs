@@ -7,9 +7,9 @@
 use chrono::NaiveDate;
 use chrono_tz::Tz;
 
-use crate::record::{TokenUsage, UsageEvent};
+use crate::record::UsageEvent;
 
-/// Token totals for one bucket (a day, and later a month, session, ...).
+/// Token and cost totals for one bucket (a day, a month, a session, ...).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Totals {
     /// Uncached input tokens.
@@ -22,16 +22,19 @@ pub struct Totals {
     pub cache_write_1h: u64,
     /// Tokens read from cache.
     pub cache_read: u64,
+    /// Cost in USD (zero until the cost engine stamps events).
+    pub cost: rust_decimal::Decimal,
 }
 
 impl Totals {
-    /// Fold one event's usage into this bucket.
-    pub fn add(&mut self, usage: &TokenUsage) {
-        self.input += usage.input;
-        self.output += usage.output;
-        self.cache_write_5m += usage.cache_write_5m;
-        self.cache_write_1h += usage.cache_write_1h;
-        self.cache_read += usage.cache_read;
+    /// Fold one event's usage and cost into this bucket.
+    pub fn add(&mut self, event: &UsageEvent) {
+        self.input += event.usage.input;
+        self.output += event.usage.output;
+        self.cache_write_5m += event.usage.cache_write_5m;
+        self.cache_write_1h += event.usage.cache_write_1h;
+        self.cache_read += event.usage.cache_read;
+        self.cost += event.cost;
     }
 
     /// Sum of every token category.
@@ -72,8 +75,8 @@ pub fn daily(
     let mut total = Totals::default();
     for event in events.into_iter().filter(|e| in_range(e, tz, since, until)) {
         let date = event.timestamp.with_timezone(&tz).date_naive();
-        buckets.entry(date).or_default().add(&event.usage);
-        total.add(&event.usage);
+        buckets.entry(date).or_default().add(&event);
+        total.add(&event);
     }
     DailyReport {
         days: buckets
@@ -130,8 +133,8 @@ pub fn monthly(
             .with_timezone(&tz)
             .format("%Y-%m")
             .to_string();
-        buckets.entry(month).or_default().add(&event.usage);
-        total.add(&event.usage);
+        buckets.entry(month).or_default().add(&event);
+        total.add(&event);
     }
     MonthlyReport {
         months: buckets
@@ -201,7 +204,7 @@ pub fn sessions(
         std::collections::HashMap::new();
     let mut total = Totals::default();
     for event in events.into_iter().filter(|e| in_range(e, tz, since, until)) {
-        total.add(&event.usage);
+        total.add(&event);
         let id = event
             .session_id
             .clone()
@@ -219,7 +222,7 @@ pub fn sessions(
         if !session.models.contains(&event.model) {
             session.models.push(event.model.clone());
         }
-        session.totals.add(&event.usage);
+        session.totals.add(&event);
     }
 
     let mut sessions: Vec<SessionTotals> = buckets.into_values().collect();
@@ -283,7 +286,7 @@ pub fn projects(
     let mut buckets: std::collections::HashMap<String, Bucket> = std::collections::HashMap::new();
     let mut total = Totals::default();
     for event in events.into_iter().filter(|e| in_range(e, tz, since, until)) {
-        total.add(&event.usage);
+        total.add(&event);
         let bucket = buckets
             .entry(event.project.clone())
             .or_insert_with(|| Bucket {
@@ -298,7 +301,7 @@ pub fn projects(
                 .unwrap_or_else(|| "(unknown)".to_owned()),
         );
         bucket.last_activity = bucket.last_activity.max(event.timestamp);
-        bucket.totals.add(&event.usage);
+        bucket.totals.add(&event);
     }
     let mut projects: Vec<ProjectTotals> = buckets
         .into_iter()
@@ -346,11 +349,8 @@ pub fn models(
     let mut buckets: std::collections::BTreeMap<String, Totals> = std::collections::BTreeMap::new();
     let mut total = Totals::default();
     for event in events.into_iter().filter(|e| in_range(e, tz, since, until)) {
-        buckets
-            .entry(event.model.clone())
-            .or_default()
-            .add(&event.usage);
-        total.add(&event.usage);
+        buckets.entry(event.model.clone()).or_default().add(&event);
+        total.add(&event);
     }
     let mut models: Vec<ModelTotals> = buckets
         .into_iter()
@@ -368,7 +368,7 @@ pub fn models(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::record::DedupKey;
+    use crate::record::{DedupKey, TokenUsage};
     use chrono::{DateTime, Utc};
 
     fn event_at(utc: &str, output: u64) -> UsageEvent {
@@ -385,6 +385,7 @@ mod tests {
                 cache_read: 100,
             },
             cost_usd: None,
+            cost: rust_decimal::Decimal::ZERO,
             dedup_key: DedupKey::Uuid(format!("{utc}-{output}")),
         }
     }
@@ -481,6 +482,18 @@ mod tests {
         let report = daily([], chrono_tz::UTC, None, None);
         assert!(report.days.is_empty());
         assert_eq!(report.total, Totals::default());
+    }
+
+    #[test]
+    fn stamped_costs_sum_into_buckets_and_grand_total() {
+        let mut cheap = event_at("2026-07-01T10:00:00Z", 1);
+        cheap.cost = "0.25".parse().unwrap();
+        let mut pricey = event_at("2026-07-02T10:00:00Z", 1);
+        pricey.cost = "1.50".parse().unwrap();
+
+        let report = daily([cheap, pricey], chrono_tz::UTC, None, None);
+        assert_eq!(report.days[0].totals.cost, "0.25".parse().unwrap());
+        assert_eq!(report.total.cost, "1.75".parse().unwrap());
     }
 
     /// Full-control event builder for the grouping reports.

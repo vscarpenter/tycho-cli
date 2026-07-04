@@ -73,7 +73,7 @@ fn labeled_row(label: String, totals: &Totals) -> Vec<String> {
     std::iter::once(label).chain(token_fields(totals)).collect()
 }
 
-fn token_fields(totals: &Totals) -> [String; 6] {
+fn token_fields(totals: &Totals) -> [String; 7] {
     [
         totals.input.to_string(),
         totals.output.to_string(),
@@ -81,16 +81,18 @@ fn token_fields(totals: &Totals) -> [String; 6] {
         totals.cache_write_1h.to_string(),
         totals.cache_read.to_string(),
         totals.total().to_string(),
+        totals.cost.to_string(), // full precision; consumers round
     ]
 }
 
-const TOKEN_HEADERS: [&str; 6] = [
+const TOKEN_HEADERS: [&str; 7] = [
     "input",
     "output",
     "cache_write_5m",
     "cache_write_1h",
     "cache_read",
     "total",
+    "cost_usd",
 ];
 
 /// Write rows into an in-memory CSV. Writing to a `Vec<u8>` cannot fail,
@@ -120,6 +122,7 @@ mod tests {
             cache_write_5m: 2,
             cache_write_1h: 3,
             cache_read: 4,
+            cost: "0.5".parse().unwrap(),
         }
     }
 
@@ -136,9 +139,9 @@ mod tests {
         let lines: Vec<&str> = rendered.trim_end().lines().collect();
         assert_eq!(
             lines[0],
-            "date,input,output,cache_write_5m,cache_write_1h,cache_read,total"
+            "date,input,output,cache_write_5m,cache_write_1h,cache_read,total,cost_usd"
         );
-        assert_eq!(lines[1], "2026-07-02,1,9,2,3,4,19");
+        assert_eq!(lines[1], "2026-07-02,1,9,2,3,4,19,0.5");
         assert_eq!(lines.len(), 2, "no totals row in CSV");
     }
 
@@ -153,7 +156,7 @@ mod tests {
         };
         let rendered = monthly(&report);
         assert!(rendered.starts_with("month,input"));
-        assert!(rendered.contains("2026-07,1,9,2,3,4,19"));
+        assert!(rendered.contains("2026-07,1,9,2,3,4,19,0.5"));
     }
 
     #[test]
@@ -174,7 +177,7 @@ mod tests {
         let lines: Vec<&str> = rendered.trim_end().lines().collect();
         assert_eq!(
             lines[0],
-            "session_id,project,start,end,duration_seconds,models,input,output,cache_write_5m,cache_write_1h,cache_read,total"
+            "session_id,project,start,end,duration_seconds,models,input,output,cache_write_5m,cache_write_1h,cache_read,total,cost_usd"
         );
         assert!(lines[1].starts_with("0123456789abcdef,-Users-v-Projects-gsd,"));
         assert!(lines[1].contains("2026-07-02T10:00:00Z,2026-07-02T12:30:00Z,9000,opus;sonnet,"));

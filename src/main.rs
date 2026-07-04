@@ -10,6 +10,8 @@ use chrono_tz::Tz;
 use clap::{CommandFactory, Parser};
 
 use tycho::cli::{self, Cli, Command};
+use tycho::cost::{self, Coster};
+use tycho::pricing::{self, PricingTable};
 use tycho::report::{csv, json, table};
 use tycho::scan::{self, EventFilter, ScanOutcome};
 use tycho::{aggregate, discover};
@@ -28,12 +30,24 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> anyhow::Result<()> {
     let tz = cli::resolve_timezone(&cli.global);
     let roots = resolve_roots(&cli)?;
+    let pricing = resolve_pricing(&cli)?;
     let filter = EventFilter {
         project: cli.global.project.as_deref(),
         model: cli.global.model.as_deref(),
     };
-    let outcome = scan::scan(&roots, filter);
-    println!("{}", render(&cli, tz, &roots, outcome));
+
+    let mut outcome = scan::scan(&roots, filter);
+
+    let unpriced = cost::unknown_models(&outcome.events, &pricing);
+    for model in &unpriced {
+        eprintln!(
+            "{}: no pricing for model {model:?}; costing it at $0 (add it via --pricing)",
+            tycho::BIN_NAME
+        );
+    }
+    Coster::new(&pricing, cli.global.mode.into()).apply(&mut outcome.events);
+
+    println!("{}", render(&cli, tz, &roots, outcome, unpriced));
     Ok(())
 }
 
@@ -46,7 +60,34 @@ fn resolve_roots(cli: &Cli) -> anyhow::Result<Vec<PathBuf>> {
     Ok(discover::default_roots(&home, config_dir.as_deref()))
 }
 
-fn render(cli: &Cli, tz: Tz, roots: &[PathBuf], outcome: ScanOutcome) -> String {
+/// Embedded defaults, then the user's config-dir table, then `--pricing`,
+/// each merging per model over the previous layer.
+fn resolve_pricing(cli: &Cli) -> anyhow::Result<PricingTable> {
+    let mut table = PricingTable::embedded();
+    if let Some(home) = std::env::home_dir() {
+        let xdg = std::env::var("XDG_CONFIG_HOME").ok();
+        let path = pricing::user_override_path(xdg.as_deref(), &home);
+        if path.is_file() {
+            let overrides =
+                PricingTable::load(&path).with_context(|| format!("loading {}", path.display()))?;
+            table.merge(overrides);
+        }
+    }
+    if let Some(path) = &cli.global.pricing {
+        let overrides =
+            PricingTable::load(path).with_context(|| format!("loading {}", path.display()))?;
+        table.merge(overrides);
+    }
+    Ok(table)
+}
+
+fn render(
+    cli: &Cli,
+    tz: Tz,
+    roots: &[PathBuf],
+    outcome: ScanOutcome,
+    unpriced: Vec<String>,
+) -> String {
     let global = &cli.global;
     let (since, until) = (global.since, global.until);
     match cli.effective_command() {
@@ -57,7 +98,7 @@ fn render(cli: &Cli, tz: Tz, roots: &[PathBuf], outcome: ScanOutcome) -> String 
             } else if global.csv {
                 csv::daily(&report)
             } else {
-                table::daily(&report)
+                table::daily(&report, global.precise)
             }
         }
         Command::Monthly => {
@@ -67,7 +108,7 @@ fn render(cli: &Cli, tz: Tz, roots: &[PathBuf], outcome: ScanOutcome) -> String 
             } else if global.csv {
                 csv::monthly(&report)
             } else {
-                table::monthly(&report)
+                table::monthly(&report, global.precise)
             }
         }
         Command::Sessions { limit, sort } => {
@@ -77,7 +118,7 @@ fn render(cli: &Cli, tz: Tz, roots: &[PathBuf], outcome: ScanOutcome) -> String 
             } else if global.csv {
                 csv::sessions(&report)
             } else {
-                table::sessions(&report, tz)
+                table::sessions(&report, tz, global.precise)
             }
         }
         Command::Projects => {
@@ -86,7 +127,7 @@ fn render(cli: &Cli, tz: Tz, roots: &[PathBuf], outcome: ScanOutcome) -> String 
             if global.json {
                 json::projects(&report, tz.name())
             } else {
-                table::projects(&report, tz)
+                table::projects(&report, tz, global.precise)
             }
         }
         Command::Models => {
@@ -95,12 +136,12 @@ fn render(cli: &Cli, tz: Tz, roots: &[PathBuf], outcome: ScanOutcome) -> String 
             if global.json {
                 json::models(&report, tz.name())
             } else {
-                table::models(&report)
+                table::models(&report, global.precise)
             }
         }
         Command::Doctor => {
             reject_csv(global.csv);
-            let report = scan::doctor(roots, &outcome);
+            let report = scan::doctor(roots, &outcome, unpriced);
             if global.json {
                 json::doctor(&report)
             } else {

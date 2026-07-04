@@ -212,3 +212,62 @@ fn daily_csv_emits_data_rows() {
 fn csv_on_models_is_a_usage_error() {
     tycho().args(["models", "--csv"]).assert().code(2);
 }
+
+fn cost_of(value: &serde_json::Value) -> f64 {
+    value["totals"]["cost_usd"].as_f64().unwrap()
+}
+
+/// Hand-computed from the fixtures and the embedded pricing table:
+/// calculate = (6412.5 + 303 + 303.25 + 116.25) / 1e6; auto swaps msg_a2's
+/// calculated 303/1e6 for its recorded costUSD of 0.5.
+#[test]
+fn cost_modes_change_the_math() {
+    let auto = stdout_json(tycho().args(["daily", "--json"]));
+    assert!((cost_of(&auto) - 0.506_832).abs() < 1e-9, "auto: {auto}");
+
+    let calc = stdout_json(tycho().args(["daily", "--json", "--mode", "calculate"]));
+    assert!(
+        (cost_of(&calc) - 0.007_135).abs() < 1e-9,
+        "calculate: {calc}"
+    );
+
+    let display = stdout_json(tycho().args(["daily", "--json", "--mode", "display"]));
+    assert!((cost_of(&display) - 0.5).abs() < 1e-9, "display: {display}");
+}
+
+#[test]
+fn pricing_override_replaces_model_rates() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pricing.toml");
+    std::fs::write(
+        &path,
+        r#"
+        [models."claude-opus-4-8"]
+        input = 0.0
+        output = 0.0
+        cache_write_5m = 0.0
+        cache_write_1h = 0.0
+        cache_read = 0.0
+        "#,
+    )
+    .unwrap();
+
+    let value = stdout_json(tycho().args([
+        "daily",
+        "--json",
+        "--mode",
+        "calculate",
+        "--pricing",
+        path.to_str().unwrap(),
+    ]));
+    // Only the sonnet event still costs anything: 303 / 1e6.
+    assert!((cost_of(&value) - 0.000_303).abs() < 1e-9, "{value}");
+}
+
+#[test]
+fn invalid_pricing_file_is_a_runtime_error() {
+    tycho()
+        .args(["daily", "--pricing", "/definitely/not/a/file.toml"])
+        .assert()
+        .code(1);
+}

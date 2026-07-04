@@ -1,1 +1,5 @@
-/target
+/target/
+**/*.rs.bk
+*.pdb
+rustc-ice-*.txt
+**/mutants.out*/

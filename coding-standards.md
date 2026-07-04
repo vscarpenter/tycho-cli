@@ -1,65 +1,10 @@
-# Code Standards & Agentic Guidance v16.2
+# Code Standards & Agentic Guidance v16.4
 
-**Purpose.** Directives governing how LLMs approach complex, multi-step development tasks. Optimized for Claude Opus 4.8 and the Claude Code harness. Every directive applies to every coding session.
+**Purpose.** Directives governing how LLMs approach complex, multi-step development tasks. Optimized for the Claude Code harness. Every directive applies to every coding session.
 
-**How to use this file.** This is the full reference. Load only what's needed at runtime. Enforce mechanical rules with hooks, not prose.
+**How to use this file.** This is the full reference. Load only what's needed at runtime. Enforce mechanical rules with hooks, not prose. 
 
-**Portability (Claude Code and Codex).** Parts 1 through 8 and Part 10 are model-agnostic and belong in both `CLAUDE.md` and a Codex `AGENTS.md`. Harness mechanics are Claude Code specific and are tagged where they appear. When generating an `AGENTS.md` for Codex, omit Part 0, Part 9, the environment-specific verification surfaces in Part 1, and the hook examples. Codex does not share those primitives, and carrying them over is dead weight at best and misleading at worst.
-
----
-
-## Part 0: Opus 4.8 Tuning
-
-*Claude Code and Claude API specific. Omit from a Codex `AGENTS.md`.*
-
-Opus 4.8 changes defaults that older standards did not need to address. These tunings apply across every session and carry back to 4.7 and 4.6 unless noted.
-
-### Effort calibration
-
-Opus 4.8 ships with `high` effort on every surface, including the Claude API and Claude Code. It respects effort levels strictly, especially at the low end. At `low` and `medium` it scopes work to exactly what was asked and does not silently extend.
-
-Five levels exist: `low`, `medium`, `high`, `xhigh`, and `max`.
-
-- **`xhigh`:** the recommended default for long-running coding and agentic tasks.
-- **`high`:** the minimum for intelligence-sensitive work.
-- **`medium`:** a legitimate trade-off when speed or cost outweighs maximum depth, not only a cost concession.
-- **`max`:** when quality matters more than token spend.
-- **`low`:** avoid for non-trivial tasks. If latency forces it, add a line like "This task involves multi-step reasoning. Think carefully before responding."
-
-**Setting effort in Claude Code:** run `/effort` and pick a level. Your choice persists across sessions. `max` is the exception and applies only to the current session.
-
-Pair `xhigh` or `max` with a generous `max_tokens` (start at 64k) so the model has room to think and act across subagents. If you see `stop_reason: "max_tokens"`, raise `max_tokens` or lower effort.
-
-### Adaptive thinking
-
-On Opus 4.8, thinking is off unless you explicitly set `thinking: {type: "adaptive"}`. Manual budgets with `budget_tokens` are no longer accepted on 4.8 or 4.7. Adaptive is the only supported mode, and the effort parameter is the lever for depth. Adaptive thinking outperforms manual budgets in evaluations. If the model thinks more often than you want under a large system prompt, add guidance to steer it down.
-
-### Latency
-
-If first-token latency matters and you do not surface reasoning to users, fast mode is available on Opus 4.8 as a research preview. Set `speed: "fast"` for higher output tokens per second at premium pricing. To hide thinking without changing depth, set `display: "omitted"`.
-
-### Literal instruction following
-
-Opus 4.8 interprets prompts literally, more so than 4.6. It will not generalize an instruction from one item to another. It will not infer requests you did not make.
-
-**Rule:** State scope explicitly. Say "apply this to every section, not just the first one." If you want above-and-beyond behavior, ask for it directly. Default behavior is to do exactly what was asked.
-
-### Overeagerness and overengineering
-
-Opus 4.8 still tends to overengineer if not constrained. Counter it with explicit minimalism, and match process weight to task size using the Task Tiers in Part 1.
-
-- **Scope:** Do not add features, refactor, or improve beyond what was asked. A bug fix does not need surrounding code cleaned up.
-- **Documentation:** Do not add docstrings, comments, or type annotations to code you did not change.
-- **Defensive coding:** Do not add error handling for scenarios that cannot happen. Trust internal code and framework guarantees. Validate at system boundaries only.
-- **Abstractions:** Do not create helpers for one-time operations. YAGNI (Part 2) applies with extra force here.
-
-### Subagent calibration
-
-Opus 4.8 has strong native orchestration but spawns fewer subagents than 4.6 by default. Steer it explicitly:
-
-- **Spawn** when fanning out across items or reading multiple files in parallel.
-- **Do not spawn** for work completable in a single response, such as refactoring a function already in view.
-- **Skip subagents** for tasks under 3 tool calls. Overhead exceeds benefit.
+**Portability (Claude Code and Codex).** Parts 1 through 8 and Part 10 belong in both `CLAUDE.md` and a Codex `AGENTS.md`. Harness mechanics are Claude Code specific and are tagged where they appear. When generating an `AGENTS.md` for Codex, omit Part 9, the environment-specific verification surfaces in Part 1, and the hook examples. Canonical prompt text lives in `.claude/commands/`; port those files to Codex's custom prompt mechanism rather than inlining them. Codex does not share the remaining primitives, and carrying them over is dead weight at best and misleading at worst.
 
 ---
 
@@ -76,6 +21,15 @@ Match process weight to task size. Full spec, test-first, and ADR machinery on a
 | Non-trivial | Coordinated changes across more than one file, more than ~50 lines, a changed public interface, or any edit to shared code or infrastructure. | Full process: `tasks/spec.md`, approval before coding, red/green/refactor, ADR if an architectural decision is made. |
 
 When a task sits on a boundary, state which tier you picked and why before proceeding.
+
+### Scope Discipline
+
+Models overengineer when unconstrained. Counter it with explicit minimalism.
+
+- **Scope:** Do not add features, refactor, or improve beyond what was asked. A bug fix does not need surrounding code cleaned up.
+- **Documentation:** Do not add docstrings, comments, or type annotations to code you did not change.
+- **Defensive coding:** Do not add error handling for scenarios that cannot happen. Trust internal code and framework guarantees. Validate at system boundaries only.
+- **Abstractions:** Do not create helpers for one-time operations. YAGNI (Part 2) applies with extra force here.
 
 ### Codebase Orientation (REQUIRED before first write)
 
@@ -159,7 +113,7 @@ Local, reversible actions are encouraged without confirmation: editing files, ru
 3. Monitor context usage. Prioritize committing working code before context exhaustion.
 4. Never leave significant work uncommitted.
 
-**Prefer fresh context over compaction.** State lives in `tasks/`. Resume by reading those files, not by summarizing chat history. Opus 4.8 is effective at discovering state from the local filesystem. Lean on that.
+**Prefer fresh context over compaction.** State lives in `tasks/`. Resume by reading those files, not by summarizing chat history. Current models are effective at discovering state from the local filesystem. Lean on that.
 
 **Outcomes, not process.** Every multi-step task must have a stated "done" condition the model can recognize autonomously.
 
@@ -420,43 +374,9 @@ Required when a decision is hard to reverse, affects multiple teams or services,
 | Anti-goals | What should the output NOT do or include? |
 | Output Format | Specify the expected shape of the response. |
 
-### Prompt Patterns
+### Prompt Sources
 
-These prompts are the canonical source for the slash commands in Part 9. Edit them here when changing canonical wording.
-
-**Spec Prompt** (used by `/qspec`)
-```
-You are a [role]. I need a spec for [feature].
-Context: [relevant background]
-Constraints: [non-negotiables]
-Anti-goals: [what this should not do]
-Output: spec.md with Goal, Inputs/Outputs, Constraints,
-Edge Cases, Acceptance Criteria, Test Stubs.
-```
-
-**Implementation Prompt** (used by `/tdd`)
-```
-Implement [feature] per this spec: [paste spec]
-Use [language/framework]. Follow existing patterns in [file].
-Do not modify [out-of-scope files].
-Follow red/green/refactor: write the failing test first,
-confirm it fails, then write minimal implementation to pass.
-Solve the problem generally. Do not hard-code to the test cases.
-Return only the implementation with inline comments on
-non-obvious decisions.
-```
-
-**Review Prompt** (used by `/qcheck`)
-```
-Review this code as a skeptical staff engineer.
-Report every issue you find, including low-confidence and low-severity findings.
-Do not filter or self-censor. A separate verification step will rank them.
-Tag each finding as BLOCKING, IMPORTANT, or NIT, with confidence and severity.
-Categories to cover: security, missing error handling,
-test gaps, readability, logic implemented before tests,
-hard-coded values that should be parameterized.
-Do not rewrite the code. Return a structured list of findings.
-```
+Canonical prompt text lives in `.claude/commands/` (`qspec.md`, `tdd.md`, `qcheck.md`). The executable file is the source of truth. Edit wording there, not here. This document defines the structure every command prompt follows and the anti-patterns none of them may contain.
 
 ### Prompt Anti-Patterns
 
@@ -481,17 +401,13 @@ Do not rewrite the code. Return a structured list of findings.
 
 Reusable building blocks: slash commands, skills, subagents, and hooks. If you do something more than once a day, it should be one of these, not a prompt you retype.
 
+**Routing between primitives.** Commands initiate, subagents verify, hooks gate. `/tdd` starts the red/green/refactor cycle; `tdd-enforcer` audits that it happened; the Stop hook blocks completion if tests fail. When two primitives overlap, that division is the tiebreaker.
+
 ### Slash Commands (`.claude/commands/`)
 
-Short, repeatable actions checked into git. Executable with a single invocation. Can inline Bash for pre-computed context.
+Short, repeatable actions checked into git. Executable with a single invocation. Can inline Bash for pre-computed context. Each command file is the canonical text of its prompt; Part 8 defines the structure and anti-patterns it must follow.
 
-| Command | Source Prompt | Purpose |
-|---|---|---|
-| `/qspec` | Spec Prompt (Part 8) | Generate a spec. |
-| `/tdd` | Implementation Prompt (Part 8) | Start a red/green/refactor cycle. |
-| `/qcheck` | Review Prompt (Part 8) | Skeptical staff engineer review. |
-
-Other examples: commit-push-PR, run tests, format code, generate changelog.
+Current commands: `/qspec` (generate a spec), `/tdd` (start a red/green/refactor cycle), `/qcheck` (skeptical staff engineer review). The directory is the living index. Other candidates: commit-push-PR, run tests, format code, generate changelog.
 
 ### Skills (`.claude/skills/`)
 
@@ -509,7 +425,13 @@ Complex multi-step workflows with domain knowledge or conditional logic. SKILL.m
 
 ### Subagents (`.claude/agents/`)
 
-See Part 0 for when to spawn or skip subagents. When you do, constrain behavior:
+Steer subagent use explicitly:
+
+- **Spawn** when fanning out across items or reading multiple files in parallel.
+- **Do not spawn** for work completable in a single response, such as refactoring a function already in view.
+- **Skip subagents** for tasks under 3 tool calls. Overhead exceeds benefit.
+
+When you do spawn, constrain behavior:
 
 - Subagents return concise summaries, not raw output.
 - Read-only tools for research subagents. Write access only for implementation subagents.
@@ -557,13 +479,13 @@ A runtime checklist of behavioral drift, the failures a model backslides into ra
 | Refactor step skipped after reaching green | Part 3: Red/Green/Refactor |
 | Trial-and-error fixes without root cause analysis | Part 1: Stop Conditions |
 | Pushing through a broken plan instead of re-planning | Part 1: Stop Conditions |
-| Modifying files outside the task's scope | Part 0: Overeagerness |
+| Modifying files outside the task's scope | Part 1: Scope Discipline |
 | Hard-to-reverse actions without confirmation | Part 1: Hard-to-Reverse Action Safety |
 | Ending a session with failing tests or uncommitted changes | Part 1: Session Handoff |
-| Over-engineering beyond what was asked | Part 0: Overeagerness |
+| Over-engineering beyond what was asked | Part 1: Scope Discipline |
 
 ---
 
 > "Code should be safe to modify, easy to reason about, and boring to maintain. When in doubt, simplify."
 >
-> Vinny Carpenter, Document Version 16.2
+> Vinny Carpenter, Document Version 16.4

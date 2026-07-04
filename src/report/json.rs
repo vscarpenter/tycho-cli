@@ -24,7 +24,7 @@ fn to_json<T: Serialize>(value: &T) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_owned())
 }
 
-/// One serialized token block.
+/// One serialized token block (with its cost).
 #[derive(Serialize)]
 struct TokensOut {
     input: u64,
@@ -33,10 +33,12 @@ struct TokensOut {
     cache_write_1h: u64,
     cache_read: u64,
     total: u64,
+    cost_usd: f64,
 }
 
 impl From<&Totals> for TokensOut {
     fn from(totals: &Totals) -> Self {
+        use rust_decimal::prelude::ToPrimitive;
         Self {
             input: totals.input,
             output: totals.output,
@@ -44,6 +46,7 @@ impl From<&Totals> for TokensOut {
             cache_write_1h: totals.cache_write_1h,
             cache_read: totals.cache_read,
             total: totals.total(),
+            cost_usd: totals.cost.to_f64().unwrap_or(0.0),
         }
     }
 }
@@ -266,6 +269,7 @@ struct DoctorOut {
     duplicates_collapsed: u64,
     date_span: Option<SpanOut>,
     models: Vec<String>,
+    unpriced_models: Vec<String>,
 }
 
 /// Render the doctor data-health report as pretty-printed JSON.
@@ -303,6 +307,7 @@ pub fn doctor(report: &DoctorReport) -> String {
             last: rfc3339(last),
         }),
         models: report.models.clone(),
+        unpriced_models: report.unpriced_models.clone(),
     };
     to_json(&out)
 }
@@ -323,6 +328,7 @@ mod tests {
                     cache_write_5m: 4_000,
                     cache_write_1h: 1_521,
                     cache_read: 196_377,
+                    cost: "0.75".parse().unwrap(),
                 },
             }],
             total: Totals {
@@ -331,6 +337,7 @@ mod tests {
                 cache_write_5m: 4_000,
                 cache_write_1h: 1_521,
                 cache_read: 196_377,
+                cost: "0.75".parse().unwrap(),
             },
         }
     }
@@ -367,6 +374,7 @@ mod tests {
             cache_write_5m: 2,
             cache_write_1h: 3,
             cache_read: 4,
+            cost: "0.5".parse().unwrap(),
         }
     }
 
@@ -463,6 +471,7 @@ mod tests {
                 "2026-07-04T00:00:00Z".parse().unwrap(),
             )),
             models: vec!["m1".into()],
+            unpriced_models: vec!["mystery-model".into()],
         };
         let value: serde_json::Value = serde_json::from_str(&doctor(&report)).unwrap();
         assert_eq!(value["command"], "doctor");

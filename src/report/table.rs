@@ -8,9 +8,9 @@ use crate::aggregate::{
 use crate::scan::DoctorReport;
 
 /// Render the daily report as a table: one row per day, a totals row last.
-/// Cache writes are shown combined (the 5m/1h split lives in `--json` and,
-/// later, the `cache` report).
-pub fn daily(report: &DailyReport) -> String {
+/// Cache writes are shown combined (the 5m/1h split lives in `--json` and
+/// the `cache` report).
+pub fn daily(report: &DailyReport, precise: bool) -> String {
     let mut table = new_table([
         "Date",
         "Input",
@@ -18,12 +18,22 @@ pub fn daily(report: &DailyReport) -> String {
         "Cache Write",
         "Cache Read",
         "Total Tokens",
+        "Cost (USD)",
     ]);
     for day in &report.days {
-        table.add_row(totals_row(day.date.to_string(), &day.totals));
+        table.add_row(totals_row(day.date.to_string(), &day.totals, precise));
     }
-    table.add_row(totals_row("Total".to_owned(), &report.total));
+    table.add_row(totals_row("Total".to_owned(), &report.total, precise));
     table.to_string()
+}
+
+/// `$12.34`, or `$12.3456` with `--precise`.
+fn money(cost: rust_decimal::Decimal, precise: bool) -> String {
+    let places = if precise { 4 } else { 2 };
+    format!(
+        "${}",
+        cost.round_dp_with_strategy(places, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
+    )
 }
 
 fn new_table<const N: usize>(header: [&str; N]) -> comfy_table::Table {
@@ -44,9 +54,10 @@ fn token_columns(totals: &Totals) -> [String; 5] {
     ]
 }
 
-fn totals_row(label: String, totals: &Totals) -> Vec<String> {
+fn totals_row(label: String, totals: &Totals, precise: bool) -> Vec<String> {
     std::iter::once(label)
         .chain(token_columns(totals))
+        .chain(std::iter::once(money(totals.cost, precise)))
         .collect()
 }
 
@@ -68,7 +79,7 @@ fn cache_write(totals: &Totals) -> u64 {
 }
 
 /// Render the monthly report: one row per month, a totals row last.
-pub fn monthly(report: &MonthlyReport) -> String {
+pub fn monthly(report: &MonthlyReport, precise: bool) -> String {
     let mut table = new_table([
         "Month",
         "Input",
@@ -76,18 +87,19 @@ pub fn monthly(report: &MonthlyReport) -> String {
         "Cache Write",
         "Cache Read",
         "Total Tokens",
+        "Cost (USD)",
     ]);
     for month in &report.months {
-        table.add_row(totals_row(month.month.clone(), &month.totals));
+        table.add_row(totals_row(month.month.clone(), &month.totals, precise));
     }
-    table.add_row(totals_row("Total".to_owned(), &report.total));
+    table.add_row(totals_row("Total".to_owned(), &report.total, precise));
     table.to_string()
 }
 
 /// Render the sessions report. Session ids are shortened to eight
 /// characters for width; `--json`/`--csv` carry the full id. The footer
 /// totals cover every matching session, not just the shown rows.
-pub fn sessions(report: &SessionsReport, tz: Tz) -> String {
+pub fn sessions(report: &SessionsReport, tz: Tz, precise: bool) -> String {
     let mut table = new_table([
         "Session",
         "Project",
@@ -95,6 +107,7 @@ pub fn sessions(report: &SessionsReport, tz: Tz) -> String {
         "Duration",
         "Models",
         "Total Tokens",
+        "Cost (USD)",
     ]);
     for session in &report.sessions {
         table.add_row(vec![
@@ -108,6 +121,7 @@ pub fn sessions(report: &SessionsReport, tz: Tz) -> String {
             human_duration(session.duration()),
             session.models.join(", "),
             group_thousands(session.totals.total()),
+            money(session.totals.cost, precise),
         ]);
     }
     table.add_row(vec![
@@ -117,12 +131,13 @@ pub fn sessions(report: &SessionsReport, tz: Tz) -> String {
         String::new(),
         String::new(),
         group_thousands(report.total.total()),
+        money(report.total.cost, precise),
     ]);
     table.to_string()
 }
 
 /// Render the projects rollup, largest first.
-pub fn projects(report: &ProjectsReport, tz: Tz) -> String {
+pub fn projects(report: &ProjectsReport, tz: Tz, precise: bool) -> String {
     let mut table = new_table([
         "Project",
         "Sessions",
@@ -132,6 +147,7 @@ pub fn projects(report: &ProjectsReport, tz: Tz) -> String {
         "Cache Write",
         "Cache Read",
         "Total Tokens",
+        "Cost (USD)",
     ]);
     for project in &report.projects {
         let mut row = vec![
@@ -144,16 +160,18 @@ pub fn projects(report: &ProjectsReport, tz: Tz) -> String {
                 .to_string(),
         ];
         row.extend(token_columns(&project.totals));
+        row.push(money(project.totals.cost, precise));
         table.add_row(row);
     }
     let mut total_row = vec!["Total".to_owned(), String::new(), String::new()];
     total_row.extend(token_columns(&report.total));
+    total_row.push(money(report.total.cost, precise));
     table.add_row(total_row);
     table.to_string()
 }
 
 /// Render the models rollup, largest first.
-pub fn models(report: &ModelsReport) -> String {
+pub fn models(report: &ModelsReport, precise: bool) -> String {
     let mut table = new_table([
         "Model",
         "Input",
@@ -161,11 +179,12 @@ pub fn models(report: &ModelsReport) -> String {
         "Cache Write",
         "Cache Read",
         "Total Tokens",
+        "Cost (USD)",
     ]);
     for model in &report.models {
-        table.add_row(totals_row(model.model.clone(), &model.totals));
+        table.add_row(totals_row(model.model.clone(), &model.totals, precise));
     }
-    table.add_row(totals_row("Total".to_owned(), &report.total));
+    table.add_row(totals_row("Total".to_owned(), &report.total, precise));
     table.to_string()
 }
 
@@ -223,6 +242,12 @@ pub fn doctor(report: &DoctorReport) -> String {
         table.add_row(vec![label.to_owned(), value]);
     }
     table.add_row(vec!["Models observed".to_owned(), report.models.join("\n")]);
+    let unpriced = if report.unpriced_models.is_empty() {
+        "(none)".to_owned()
+    } else {
+        report.unpriced_models.join("\n")
+    };
+    table.add_row(vec!["Models without pricing".to_owned(), unpriced]);
     table.to_string()
 }
 
@@ -258,6 +283,7 @@ mod tests {
                 cache_write_5m: 5_521,
                 cache_write_1h: 1_000,
                 cache_read: 815_193,
+                cost: "1.25".parse().unwrap(),
             },
         };
         DailyReport {
@@ -268,13 +294,14 @@ mod tests {
                 cache_write_5m: 11_042,
                 cache_write_1h: 2_000,
                 cache_read: 1_630_386,
+                cost: "2.50".parse().unwrap(),
             },
         }
     }
 
     #[test]
     fn renders_one_row_per_day_plus_a_totals_row() {
-        let rendered = daily(&sample_report());
+        let rendered = daily(&sample_report(), false);
         assert!(rendered.contains("2026-07-01"));
         assert!(rendered.contains("2026-07-02"));
         assert!(rendered.contains("Total"));
@@ -282,7 +309,7 @@ mod tests {
 
     #[test]
     fn shows_thousands_separators_and_combined_cache_write() {
-        let rendered = daily(&sample_report());
+        let rendered = daily(&sample_report(), false);
         assert!(
             rendered.contains("815,193"),
             "cache read column:\n{rendered}"
@@ -296,7 +323,7 @@ mod tests {
 
     #[test]
     fn has_the_expected_column_headers() {
-        let rendered = daily(&sample_report());
+        let rendered = daily(&sample_report(), false);
         for header in [
             "Date",
             "Input",
@@ -327,6 +354,7 @@ mod tests {
             cache_write_5m: 10,
             cache_write_1h: 20,
             cache_read: 1_000,
+            cost: "0.5".parse().unwrap(),
         }
     }
 
@@ -339,7 +367,7 @@ mod tests {
             }],
             total: totals(5_000),
         };
-        let rendered = monthly(&report);
+        let rendered = monthly(&report, false);
         assert!(rendered.contains("Month"));
         assert!(rendered.contains("2026-07"));
         assert!(rendered.contains("5,000"));
@@ -360,7 +388,7 @@ mod tests {
             matching_sessions: 5,
             total: totals(7),
         };
-        let rendered = sessions(&report, chrono_tz::UTC);
+        let rendered = sessions(&report, chrono_tz::UTC, false);
         assert!(rendered.contains("01234567"), "shortened id:\n{rendered}");
         assert!(!rendered.contains("0123456789abcdef"));
         assert!(rendered.contains("2026-07-02 10:00"));
@@ -380,7 +408,7 @@ mod tests {
             }],
             total: totals(9),
         };
-        let rendered = projects(&report, chrono_tz::UTC);
+        let rendered = projects(&report, chrono_tz::UTC, false);
         assert!(rendered.contains("-Users-v-Projects-gsd"));
         assert!(rendered.contains("Sessions"));
         assert!(rendered.contains("2026-07-03"));
@@ -395,7 +423,7 @@ mod tests {
             }],
             total: totals(9),
         };
-        let rendered = models(&report);
+        let rendered = models(&report, false);
         assert!(rendered.contains("claude-opus-4-8"));
         assert!(rendered.contains("Total"));
     }
@@ -430,6 +458,7 @@ mod tests {
                 "2026-07-04T00:00:00Z".parse().unwrap(),
             )),
             models: vec!["claude-opus-4-8".into()],
+            unpriced_models: vec!["mystery-model".into()],
         };
         let rendered = doctor(&report);
         assert!(rendered.contains("/home/v/.claude/projects"));

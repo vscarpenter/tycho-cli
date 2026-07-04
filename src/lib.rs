@@ -9,6 +9,7 @@
 
 pub mod aggregate;
 pub mod cli;
+pub mod cost;
 pub mod dedupe;
 pub mod discover;
 pub mod pricing;

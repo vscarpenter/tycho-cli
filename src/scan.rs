@@ -118,11 +118,18 @@ pub struct DoctorReport {
     pub date_span: Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>,
     /// Distinct model ids observed, sorted.
     pub models: Vec<String>,
+    /// Observed models with no pricing entry (priced at zero), sorted.
+    pub unpriced_models: Vec<String>,
 }
 
 /// Assemble the doctor report from a finished scan. Filters that were
-/// applied to the scan apply to this report too.
-pub fn doctor(roots: &[PathBuf], outcome: &ScanOutcome) -> DoctorReport {
+/// applied to the scan apply to this report too. `unpriced_models` comes
+/// from the cost engine so this module stays pricing-agnostic.
+pub fn doctor(
+    roots: &[PathBuf],
+    outcome: &ScanOutcome,
+    unpriced_models: Vec<String>,
+) -> DoctorReport {
     let date_span = outcome
         .events
         .iter()
@@ -150,6 +157,7 @@ pub fn doctor(roots: &[PathBuf], outcome: &ScanOutcome) -> DoctorReport {
         summary: outcome.summary,
         date_span,
         models,
+        unpriced_models,
     }
 }
 
@@ -266,7 +274,7 @@ mod tests {
         let missing = PathBuf::from("/definitely/not/here");
         let roots = vec![root.path().to_path_buf(), missing.clone()];
         let outcome = scan(&roots, EventFilter::default());
-        let report = doctor(&roots, &outcome);
+        let report = doctor(&roots, &outcome, vec!["mystery-model".into()]);
 
         assert_eq!(report.roots.len(), 2);
         assert!(report.roots[0].exists);
@@ -281,6 +289,7 @@ mod tests {
         let (first, last) = report.date_span.unwrap();
         assert_eq!(first, last); // all fixture events share one timestamp
         assert_eq!(report.models, ["claude-opus-4-8", "claude-sonnet-5"]);
+        assert_eq!(report.unpriced_models, ["mystery-model"]);
         assert_eq!(report.summary.duplicates_collapsed, 2);
     }
 
