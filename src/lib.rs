@@ -8,6 +8,7 @@
 //! network calls at runtime.
 
 pub mod discover;
+pub mod record;
 
 /// The name of the installed binary. Kept in one place (plus the `[[bin]]`
 /// stanza in `Cargo.toml`) so renaming the tool is a two-line change.
