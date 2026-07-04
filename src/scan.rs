@@ -80,6 +80,61 @@ pub fn scan(roots: &[PathBuf], filter: EventFilter<'_>) -> ScanOutcome {
     }
 }
 
+/// One search root and whether it exists on this machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RootStatus {
+    /// The root path as configured.
+    pub path: PathBuf,
+    /// Whether the directory exists.
+    pub exists: bool,
+}
+
+/// Data-health report for the `doctor` command, assembled from a scan.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DoctorReport {
+    /// Every configured search root and its existence.
+    pub roots: Vec<RootStatus>,
+    /// Scan bookkeeping (files, bytes, line counters, duplicates).
+    pub summary: ScanSummary,
+    /// Earliest and latest event timestamps observed, if any events exist.
+    pub date_span: Option<(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)>,
+    /// Distinct model ids observed, sorted.
+    pub models: Vec<String>,
+}
+
+/// Assemble the doctor report from a finished scan. Filters that were
+/// applied to the scan apply to this report too.
+pub fn doctor(roots: &[PathBuf], outcome: &ScanOutcome) -> DoctorReport {
+    let date_span = outcome
+        .events
+        .iter()
+        .map(|event| event.timestamp)
+        .fold(None, |span, ts| match span {
+            None => Some((ts, ts)),
+            Some((first, last)) => Some((first.min(ts), last.max(ts))),
+        });
+    // BTreeSet gives distinct + sorted in one collect.
+    let models: Vec<String> = outcome
+        .events
+        .iter()
+        .map(|event| event.model.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    DoctorReport {
+        roots: roots
+            .iter()
+            .map(|path| RootStatus {
+                path: path.clone(),
+                exists: path.is_dir(),
+            })
+            .collect(),
+        summary: outcome.summary,
+        date_span,
+        models,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,6 +240,30 @@ mod tests {
         let outcome = scan(&[root.path().to_path_buf()], filter);
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].usage.output, 42);
+    }
+
+    #[test]
+    fn doctor_reports_roots_span_and_models() {
+        let root = fixture_root();
+        let missing = PathBuf::from("/definitely/not/here");
+        let roots = vec![root.path().to_path_buf(), missing.clone()];
+        let outcome = scan(&roots, EventFilter::default());
+        let report = doctor(&roots, &outcome);
+
+        assert_eq!(report.roots.len(), 2);
+        assert!(report.roots[0].exists);
+        assert_eq!(
+            report.roots[1],
+            RootStatus {
+                path: missing,
+                exists: false
+            }
+        );
+
+        let (first, last) = report.date_span.unwrap();
+        assert_eq!(first, last); // all fixture events share one timestamp
+        assert_eq!(report.models, ["claude-opus-4-8", "claude-sonnet-5"]);
+        assert_eq!(report.summary.duplicates_collapsed, 2);
     }
 
     #[cfg(unix)]
