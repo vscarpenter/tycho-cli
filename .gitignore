@@ -3,3 +3,17 @@
 *.pdb
 rustc-ice-*.txt
 **/mutants.out*/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Coverage and profiling output
+coverage/
+lcov.info
+cobertura.xml
+tarpaulin-report.html
+*.profraw
+*.profdata
