@@ -10,8 +10,28 @@
 - [x] Phase 3 — money: pricing engine, cost modes, rust_decimal, `cache`
       report (2026-07-04)
 - [x] Phase 4 — live: ratatui dashboard (2026-07-04)
-- [ ] Phase 5 — ship (stretch): vhs demo, LICENSE files, cargo-dist,
-      Homebrew tap, billing-blocks report
+- [~] Phase 5 — ship (stretch): decomposed into A billing-blocks (done),
+      B cargo-dist distribution, C Homebrew tap, D vhs demo
+  - [x] 5A — `tycho blocks` (2026-07-04)
+  - [x] licensing — MIT (LICENSE + Cargo.toml, 2026-07-04)
+  - [ ] 5B — cargo-dist release automation + `cargo install` docs
+  - [ ] 5C — Homebrew tap
+  - [ ] 5D — vhs demo recording in the README
+
+## Phase 5A review (at gate, 2026-07-04)
+
+- `tycho blocks`: activity-anchored 5-hour billing windows (ccusage-style),
+  built as a stateful fold over sorted events (not a group-by); the block
+  containing an injected `now` carries a linear cost projection (Decimal) plus
+  token/burn estimates (f64). `--json` contract; `--csv` rejected.
+- 8 blocks tests (6 unit + 2 integration); 139 tests total, all TDD;
+  fmt/clippy(-D warnings) green at every commit. Verified the real table
+  against fixtures (4 windows, total 1,510).
+- Public repo live at github.com/vscarpenter/tycho-cli; CI green on
+  ubuntu/macos + release + windows (actions/checkout@v5).
+- Design/plan under `docs/superpowers/{specs,plans}/2026-07-04-billing-blocks*`;
+  learning note `docs/learning/phase-5.md`.
+- Next: 5B (cargo-dist) — needs its own design gate.
 
 ## Phase 2 + 3 review (at gate, 2026-07-04)
 

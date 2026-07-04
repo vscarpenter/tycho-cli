@@ -68,6 +68,25 @@ $ tycho daily --since 2026-07-01
 | `tycho cache` | Cache economics: hit rate, actual vs no-cache cost, savings, leverage |
 | `tycho doctor` | Data health: files, skipped lines, duplicates collapsed, date span, unpriced models |
 | `tycho live` | Live dashboard: today's totals, 10-minute burn rate, per-model split, cache gauge, active project |
+| `tycho blocks` | Per 5-hour billing block: tokens, cost, models, and the active block's projected total |
+
+### `tycho blocks`
+
+Groups usage into **activity-anchored 5-hour billing blocks** that mirror how
+Claude's usage limits reset: a block starts at your first message (floored to
+the hour) and spans five hours; a new block begins at the next message once
+that window closes. For the block containing "now", tycho projects where its
+cost lands if the current rate holds — `$2.05 so far, ~$4.10 projected by
+17:00`. Honors the usual filters and `--json`; `--csv` is not supported.
+
+```
+$ tycho blocks
+Active block: $2.05 so far, ~$4.10 projected by 17:00 (612 tok/min).
+
+Block (5h)          │ Status              │ Total Tokens │ Cost (USD)
+07-04 09:00 – 14:00 │ 5h                  │ 12,431,002   │ $8.10
+07-04 14:00 – 19:00 │ ● active · 2h30m left │ 3,120,540  │ $2.05 → ~$4.10
+```
 
 ### `tycho live`
 
