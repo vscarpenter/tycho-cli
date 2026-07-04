@@ -4,6 +4,8 @@ Fast, privacy-first usage analytics for [Claude Code](https://code.claude.com)'s
 local JSONL transcripts: tokens, cost, cache economics, and trends by day,
 project, session, and model. Think `iostat` for AI spend.
 
+![tycho demo: the daily, cache, and blocks reports](demo.gif)
+
 ```
 $ tycho cache
 Your effective cost was $3741.36. Without prompt caching it would have been $19510.97.

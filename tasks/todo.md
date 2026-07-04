@@ -10,13 +10,13 @@
 - [x] Phase 3 — money: pricing engine, cost modes, rust_decimal, `cache`
       report (2026-07-04)
 - [x] Phase 4 — live: ratatui dashboard (2026-07-04)
-- [~] Phase 5 — ship (stretch): decomposed into A billing-blocks (done),
-      B cargo-dist distribution, C Homebrew tap, D vhs demo
+- [x] Phase 5 — ship (stretch): A billing-blocks, B cargo-dist, C Homebrew
+      tap, D vhs demo — all done (2026-07-04)
   - [x] 5A — `tycho blocks` (2026-07-04)
   - [x] licensing — MIT (LICENSE + Cargo.toml, 2026-07-04)
   - [x] 5B — cargo-dist release automation + install docs (2026-07-04)
   - [x] 5C — Homebrew tap (folded into 5B; repo + formula config done)
-  - [ ] 5D — vhs demo recording in the README
+  - [x] 5D — vhs demo (demo.tape + demo.gif, embedded in README, 2026-07-04)
 
 ## Phase 5B review (at gate, 2026-07-04)
 
