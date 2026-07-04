@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use crate::dedupe::Deduper;
-use crate::discover;
+use crate::discover::{self, TranscriptFile};
 use crate::record::{self, ParseStats, UsageEvent};
 
 /// Substring filters borrowed from the CLI arguments for the duration of
@@ -50,8 +50,6 @@ pub struct ScanOutcome {
 /// discovery order, so results are deterministic regardless of thread
 /// scheduling.
 pub fn scan(roots: &[PathBuf], filter: EventFilter<'_>) -> ScanOutcome {
-    use rayon::prelude::*;
-
     let files: Vec<_> = discover::discover(roots)
         .into_iter()
         .filter(|file| {
@@ -60,6 +58,15 @@ pub fn scan(roots: &[PathBuf], filter: EventFilter<'_>) -> ScanOutcome {
                 .is_none_or(|project| file.project.contains(project))
         })
         .collect();
+    scan_files(files, filter)
+}
+
+/// Parse and deduplicate an already-discovered file list. The `project`
+/// filter is assumed already applied to `files`; only the per-event `model`
+/// filter is honored here. This is the seam `tycho live` uses so it can read
+/// file mtimes from the same discovery pass (see `crate::tui::compute_snapshot`).
+pub fn scan_files(files: Vec<TranscriptFile>, filter: EventFilter<'_>) -> ScanOutcome {
+    use rayon::prelude::*;
 
     let parsed: Vec<_> = files
         .into_par_iter()
@@ -207,6 +214,16 @@ mod tests {
         )
         .unwrap();
         dir
+    }
+
+    #[test]
+    fn scan_files_parses_a_prediscovered_list() {
+        let root = fixture_root();
+        let files = crate::discover::discover(&[root.path().to_path_buf()]);
+        let outcome = scan_files(files, EventFilter::default());
+        assert_eq!(outcome.events.len(), 2);
+        assert_eq!(outcome.summary.files_scanned, 3);
+        assert_eq!(outcome.summary.duplicates_collapsed, 2);
     }
 
     #[test]

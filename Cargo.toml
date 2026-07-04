@@ -25,6 +25,7 @@ clap = { version = "4", features = ["derive"] }
 comfy-table = "7"
 csv = "1"
 iana-time-zone = "0.1"
+ratatui = "0.29"
 rayon = "1"
 rust_decimal = { version = "1", features = ["serde-float"] }
 toml = "0.8"
