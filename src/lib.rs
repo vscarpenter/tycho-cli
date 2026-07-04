@@ -7,6 +7,8 @@
 //! displayed, exported, or persisted. The tool is read-only and makes no
 //! network calls at runtime.
 
+pub mod discover;
+
 /// The name of the installed binary. Kept in one place (plus the `[[bin]]`
 /// stanza in `Cargo.toml`) so renaming the tool is a two-line change.
 pub const BIN_NAME: &str = "tycho";
