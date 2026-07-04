@@ -45,22 +45,40 @@ pub struct ScanOutcome {
 }
 
 /// Scan all roots, honoring `filter`, and return deduplicated events.
+///
+/// Files parse in parallel (rayon); the merge stays sequential and in
+/// discovery order, so results are deterministic regardless of thread
+/// scheduling.
 pub fn scan(roots: &[PathBuf], filter: EventFilter<'_>) -> ScanOutcome {
+    use rayon::prelude::*;
+
+    let files: Vec<_> = discover::discover(roots)
+        .into_iter()
+        .filter(|file| {
+            filter
+                .project
+                .is_none_or(|project| file.project.contains(project))
+        })
+        .collect();
+
+    let parsed: Vec<_> = files
+        .into_par_iter()
+        .map(|file| {
+            let bytes = std::fs::metadata(&file.path).map(|m| m.len()).unwrap_or(0);
+            let scan = record::parse_file(&file.path);
+            (file, bytes, scan)
+        })
+        .collect();
+
     let mut summary = ScanSummary::default();
     let mut deduper = Deduper::new();
-
-    for file in discover::discover(roots) {
-        if let Some(project) = filter.project
-            && !file.project.contains(project)
-        {
-            continue;
-        }
-        let Ok(file_scan) = record::parse_file(&file.path) else {
+    for (file, bytes, scan) in parsed {
+        let Ok(file_scan) = scan else {
             summary.files_unreadable += 1;
             continue;
         };
         summary.files_scanned += 1;
-        summary.bytes_scanned += std::fs::metadata(&file.path).map(|m| m.len()).unwrap_or(0);
+        summary.bytes_scanned += bytes;
         summary.stats.merge(&file_scan.stats);
         for mut event in file_scan.events {
             if let Some(model) = filter.model
