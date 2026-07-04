@@ -9,7 +9,7 @@
       rayon, benchmark script (2026-07-04)
 - [x] Phase 3 — money: pricing engine, cost modes, rust_decimal, `cache`
       report (2026-07-04)
-- [ ] Phase 4 — live: ratatui dashboard
+- [x] Phase 4 — live: ratatui dashboard (2026-07-04)
 - [ ] Phase 5 — ship (stretch): vhs demo, LICENSE files, cargo-dist,
       Homebrew tap, billing-blocks report
 
@@ -29,11 +29,30 @@
 - README shipped with §13 content: install, quickstart, real sample output,
   accuracy caveats, privacy statement, ccusage credit.
 
+## Phase 4 review (at gate, 2026-07-04)
+
+- `tycho live`: ratatui dashboard, 2 s refresh on a background scan thread
+  (mpsc snapshots), three tabs (Overview/Sessions/Models), 10-min burn
+  sparkline, cache gauge, mtime-based active-session detection. `q`/`Tab`
+  keys; `--json`/non-TTY prints one snapshot and exits.
+- 129 tests (108 unit + 21 integration), all TDD; fmt/clippy(-D warnings)
+  green at every commit. Pure `DashboardState::derive` (injected `now`) is
+  unit-tested; views verified against a ratatui `TestBackend`; the JSON
+  snapshot path has an end-to-end CLI test.
+- Verified in a real PTY: enters/leaves the alternate screen, runs the
+  redraw loop with live data, quits cleanly on `q` (exit 0), restores the
+  terminal.
+- New crate: `ratatui` (pre-approved P4); crossterm consumed via
+  `ratatui::crossterm` re-export. `scan::scan_files` seam added so live
+  discovers once and reuses the list for both mtimes and parsing.
+- Design/plan under `docs/superpowers/{specs,plans}/2026-07-04-live-*`.
+
 ## Resuming from here
 
-- v1 definition of done (§13) is met pending Vinny's gate review.
-- Next: Phase 4 (`tycho live` ratatui dashboard, 2 s refresh, burn rate,
-  active-session detection via mtime) after review; then Phase 5 stretch.
+- v1 definition of done (§13) was met at the Phase 3 gate; Phase 4 (live)
+  is complete pending Vinny's gate review.
+- Next: Phase 5 stretch (vhs demo, LICENSE files, cargo-dist, Homebrew tap,
+  billing-blocks report).
 - CI has never run remotely (no GitHub remote configured yet) — push and
   verify before calling CI green.
 - pricing/default.toml notes Sonnet 5 intro pricing ends 2026-08-31 —

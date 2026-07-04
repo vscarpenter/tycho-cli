@@ -41,6 +41,7 @@ tycho projects
 tycho models
 tycho monthly --csv > usage.csv
 tycho doctor          # data-health: files, skipped lines, duplicates, span
+tycho live            # a live dashboard that refreshes every 2 seconds
 ```
 
 ```
@@ -66,6 +67,22 @@ $ tycho daily --since 2026-07-01
 | `tycho models` | Rollup by model |
 | `tycho cache` | Cache economics: hit rate, actual vs no-cache cost, savings, leverage |
 | `tycho doctor` | Data health: files, skipped lines, duplicates collapsed, date span, unpriced models |
+| `tycho live` | Live dashboard: today's totals, 10-minute burn rate, per-model split, cache gauge, active project |
+
+### `tycho live`
+
+A [ratatui](https://ratatui.rs) dashboard that re-scans every 2 seconds on a
+background thread, so the UI stays responsive. It shows today's totals and
+cost, a tokens-per-minute burn rate over the last 10 minutes (with a
+sparkline), a cache hit-rate gauge, the per-model split, today's sessions, and
+the active project — detected from the most recently written transcript file.
+Keys: `q` (or `Esc`/`Ctrl-C`) quits, `Tab` cycles the Overview / Sessions /
+Models views. It ignores `--since`/`--until` (it is always "now") but honors
+`--dir`, `--project`, `--model`, `--mode`, `--pricing`, and `--tz`/`--utc`.
+
+`tycho live --json` — or `live` with a piped/redirected (non-TTY) stdout —
+prints a single JSON snapshot of the dashboard state and exits, so it never
+corrupts a pipe and can feed a status bar or script.
 
 Global flags on every command: `--dir <PATH>` (repeatable; replaces default
 search roots), `--since`/`--until` (inclusive dates in the report timezone),
