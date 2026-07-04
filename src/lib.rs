@@ -11,6 +11,7 @@ pub mod aggregate;
 pub mod cli;
 pub mod dedupe;
 pub mod discover;
+pub mod pricing;
 pub mod record;
 pub mod report;
 pub mod scan;
