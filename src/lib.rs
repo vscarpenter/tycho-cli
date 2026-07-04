@@ -7,6 +7,7 @@
 //! displayed, exported, or persisted. The tool is read-only and makes no
 //! network calls at runtime.
 
+pub mod aggregate;
 pub mod dedupe;
 pub mod discover;
 pub mod record;
