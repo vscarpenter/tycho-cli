@@ -177,14 +177,33 @@ fn mark_active(sessions: Vec<SessionLine>, _active: Option<&ActiveSession>) -> V
     sessions
 }
 
-/// Active-session detection (fully implemented in the next task); a stub for
-/// now so the crate compiles.
+/// The active session: the most-recently-modified transcript file within
+/// `threshold_secs` of `now`. mtime (not the last assistant event) is the
+/// signal because non-assistant records touch the file too, so it reflects
+/// live activity more sensitively (spec §5.2).
 pub fn active_project(
-    _mtimes: &[(String, SystemTime)],
-    _now: DateTime<Utc>,
-    _threshold_secs: i64,
+    mtimes: &[(String, SystemTime)],
+    now: DateTime<Utc>,
+    threshold_secs: i64,
 ) -> Option<ActiveSession> {
-    None
+    let (project, modified) = mtimes.iter().max_by_key(|(_, t)| *t)?;
+    let idle = now.signed_duration_since(DateTime::<Utc>::from(*modified));
+    (idle.num_seconds() <= threshold_secs).then(|| ActiveSession {
+        project: project.clone(),
+        idle: idle.max(Duration::zero()),
+    })
+}
+
+/// Read each discovered file's mtime, dropping any that cannot be stat'd.
+/// Split from [`active_project`] so the logic stays pure and testable.
+pub fn collect_mtimes(files: &[crate::discover::TranscriptFile]) -> Vec<(String, SystemTime)> {
+    files
+        .iter()
+        .filter_map(|file| {
+            let modified = std::fs::metadata(&file.path).ok()?.modified().ok()?;
+            Some((file.project.clone(), modified))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -220,6 +239,49 @@ mod tests {
         let mut e = event(utc, model, usage);
         e.cost = crate::cost::Coster::new(&table, crate::cost::CostMode::Calculate).cost(&e);
         e
+    }
+
+    fn secs_before(now: DateTime<Utc>, secs: i64) -> SystemTime {
+        (now - Duration::seconds(secs)).into()
+    }
+
+    #[test]
+    fn active_project_picks_the_newest_within_threshold() {
+        let now: DateTime<Utc> = "2026-07-04T12:00:00Z".parse().unwrap();
+        let mtimes = vec![
+            ("proj-old".to_string(), secs_before(now, 200)),
+            ("proj-new".to_string(), secs_before(now, 30)),
+        ];
+        let active = active_project(&mtimes, now, ACTIVE_THRESHOLD_SECS).unwrap();
+        assert_eq!(active.project, "proj-new");
+        assert_eq!(active.idle.num_seconds(), 30);
+    }
+
+    #[test]
+    fn active_project_is_none_when_all_files_are_stale() {
+        let now: DateTime<Utc> = "2026-07-04T12:00:00Z".parse().unwrap();
+        let mtimes = vec![("proj".to_string(), secs_before(now, 600))];
+        assert!(active_project(&mtimes, now, ACTIVE_THRESHOLD_SECS).is_none());
+    }
+
+    #[test]
+    fn active_project_is_none_with_no_files() {
+        let now: DateTime<Utc> = "2026-07-04T12:00:00Z".parse().unwrap();
+        assert!(active_project(&[], now, ACTIVE_THRESHOLD_SECS).is_none());
+    }
+
+    #[test]
+    fn collect_mtimes_reads_each_files_project_and_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        std::fs::write(&path, "{}\n").unwrap();
+        let files = vec![crate::discover::TranscriptFile {
+            project: "-Users-v-Projects-gsd".into(),
+            path,
+        }];
+        let mtimes = collect_mtimes(&files);
+        assert_eq!(mtimes.len(), 1);
+        assert_eq!(mtimes[0].0, "-Users-v-Projects-gsd");
     }
 
     #[test]
