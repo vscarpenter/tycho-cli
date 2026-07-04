@@ -5,6 +5,7 @@ use chrono_tz::Tz;
 use crate::aggregate::{
     DailyReport, ModelsReport, MonthlyReport, ProjectsReport, SessionsReport, Totals,
 };
+use crate::blocks::BLOCK_HOURS;
 use crate::scan::DoctorReport;
 
 /// Render the daily report as a table: one row per day, a totals row last.
@@ -315,6 +316,66 @@ pub fn doctor(report: &DoctorReport) -> String {
     table.to_string()
 }
 
+/// Render the billing-blocks report: an optional active-block headline, one
+/// row per block, and a totals row.
+pub fn blocks(report: &crate::blocks::BlocksReport, tz: Tz, precise: bool) -> String {
+    let active = report
+        .blocks
+        .iter()
+        .find_map(|b| b.projection.as_ref().map(|p| (b, p)));
+    let headline = match active {
+        Some((b, p)) => format!(
+            "Active block: {} so far, ~{} projected by {} ({:.0} tok/min).\n\n",
+            money(b.totals.cost, precise),
+            money(p.projected_cost, precise),
+            b.end.with_timezone(&tz).format("%H:%M"),
+            p.burn_tokens_per_min,
+        ),
+        None => String::new(),
+    };
+
+    let mut table = new_table([
+        "Block (5h)",
+        "Status",
+        "Models",
+        "Total Tokens",
+        "Cost (USD)",
+    ]);
+    for b in &report.blocks {
+        let window = format!(
+            "{} – {}",
+            b.start.with_timezone(&tz).format("%m-%d %H:%M"),
+            b.end.with_timezone(&tz).format("%H:%M"),
+        );
+        let (status, cost) = match &b.projection {
+            Some(p) => (
+                format!("● active · {} left", human_duration(p.remaining)),
+                format!(
+                    "{} → ~{}",
+                    money(b.totals.cost, precise),
+                    money(p.projected_cost, precise)
+                ),
+            ),
+            None => (format!("{BLOCK_HOURS}h"), money(b.totals.cost, precise)),
+        };
+        table.add_row(vec![
+            window,
+            status,
+            b.models.join(", "),
+            group_thousands(b.totals.total()),
+            cost,
+        ]);
+    }
+    table.add_row(vec![
+        "Total".to_owned(),
+        String::new(),
+        String::new(),
+        group_thousands(report.total.total()),
+        money(report.total.cost, precise),
+    ]);
+    format!("{headline}{table}")
+}
+
 /// `2d 2h` / `2h 30m` style humanization: two most significant units.
 fn human_duration(duration: chrono::Duration) -> String {
     let secs = duration.num_seconds().max(0);
@@ -534,6 +595,42 @@ mod tests {
         assert!(rendered.contains("2026-05-17"));
         assert!(rendered.contains("claude-opus-4-8"));
         assert!(rendered.contains("3"), "malformed count shown");
+    }
+
+    #[test]
+    fn blocks_renders_window_status_and_active_projection() {
+        use crate::blocks::{BlockProjection, BlockTotals, BlocksReport};
+        let totals = Totals {
+            input: 100,
+            output: 200,
+            cache_write_5m: 0,
+            cache_write_1h: 0,
+            cache_read: 0,
+            cost: "3.00".parse().unwrap(),
+        };
+        let report = BlocksReport {
+            blocks: vec![BlockTotals {
+                start: "2026-07-04T12:00:00Z".parse().unwrap(),
+                end: "2026-07-04T17:00:00Z".parse().unwrap(),
+                first_activity: "2026-07-04T12:05:00Z".parse().unwrap(),
+                last_activity: "2026-07-04T14:20:00Z".parse().unwrap(),
+                totals,
+                models: vec!["opus".into()],
+                projection: Some(BlockProjection {
+                    projected_cost: "6.00".parse().unwrap(),
+                    projected_tokens: 600,
+                    burn_tokens_per_min: 2.0,
+                    remaining: chrono::Duration::minutes(160),
+                }),
+            }],
+            total: totals,
+        };
+        let rendered = blocks(&report, chrono_tz::UTC, false);
+        assert!(rendered.contains("Active block:"), "{rendered}");
+        assert!(rendered.contains("07-04 12:00"), "{rendered}");
+        assert!(rendered.contains("active"), "{rendered}");
+        assert!(rendered.contains("$6.00"), "{rendered}");
+        assert!(rendered.contains("Total"), "{rendered}");
     }
 
     #[test]

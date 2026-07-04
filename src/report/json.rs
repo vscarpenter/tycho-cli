@@ -444,6 +444,64 @@ pub fn live(state: &crate::tui::state::DashboardState, timezone: &str) -> String
     to_json(&out)
 }
 
+#[derive(Serialize)]
+struct ProjectionOut {
+    projected_cost_usd: f64,
+    projected_tokens: u64,
+    burn_tokens_per_min: f64,
+    remaining_seconds: i64,
+}
+
+#[derive(Serialize)]
+struct BlockOut {
+    start: String,
+    end: String,
+    first_activity: String,
+    last_activity: String,
+    tokens: TokensOut,
+    models: Vec<String>,
+    active: bool,
+    projection: Option<ProjectionOut>,
+}
+
+#[derive(Serialize)]
+struct BlocksOut {
+    command: &'static str,
+    timezone: String,
+    blocks: Vec<BlockOut>,
+    totals: TokensOut,
+}
+
+/// Render the billing-blocks report as pretty-printed JSON.
+pub fn blocks(report: &crate::blocks::BlocksReport, timezone: &str) -> String {
+    use rust_decimal::prelude::ToPrimitive;
+    let out = BlocksOut {
+        command: "blocks",
+        timezone: timezone.to_owned(),
+        blocks: report
+            .blocks
+            .iter()
+            .map(|b| BlockOut {
+                start: rfc3339(b.start),
+                end: rfc3339(b.end),
+                first_activity: rfc3339(b.first_activity),
+                last_activity: rfc3339(b.last_activity),
+                tokens: TokensOut::from(&b.totals),
+                models: b.models.clone(),
+                active: b.projection.is_some(),
+                projection: b.projection.as_ref().map(|p| ProjectionOut {
+                    projected_cost_usd: p.projected_cost.to_f64().unwrap_or(0.0),
+                    projected_tokens: p.projected_tokens,
+                    burn_tokens_per_min: p.burn_tokens_per_min,
+                    remaining_seconds: p.remaining.num_seconds(),
+                }),
+            })
+            .collect(),
+        totals: TokensOut::from(&report.total),
+    };
+    to_json(&out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -634,6 +692,47 @@ mod tests {
         assert_eq!(value["active"]["project"], "gsd");
         assert_eq!(value["models"][0]["model"], "claude-opus-4-8");
         assert_eq!(value["sessions"][0]["active"], true);
+    }
+
+    #[test]
+    fn blocks_contract() {
+        use crate::blocks::{BlockProjection, BlockTotals, BlocksReport};
+        let totals = Totals {
+            input: 100,
+            output: 200,
+            cache_write_5m: 0,
+            cache_write_1h: 0,
+            cache_read: 0,
+            cost: "3.00".parse().unwrap(),
+        };
+        let report = BlocksReport {
+            blocks: vec![BlockTotals {
+                start: "2026-07-04T12:00:00Z".parse().unwrap(),
+                end: "2026-07-04T17:00:00Z".parse().unwrap(),
+                first_activity: "2026-07-04T12:05:00Z".parse().unwrap(),
+                last_activity: "2026-07-04T14:20:00Z".parse().unwrap(),
+                totals,
+                models: vec!["claude-opus-4-8".into()],
+                projection: Some(BlockProjection {
+                    projected_cost: "6.00".parse().unwrap(),
+                    projected_tokens: 600,
+                    burn_tokens_per_min: 2.0,
+                    remaining: chrono::Duration::minutes(160),
+                }),
+            }],
+            total: totals,
+        };
+        let value: serde_json::Value = serde_json::from_str(&blocks(&report, "UTC")).unwrap();
+        assert_eq!(value["command"], "blocks");
+        let b = &value["blocks"][0];
+        assert_eq!(b["start"], "2026-07-04T12:00:00Z");
+        assert_eq!(b["end"], "2026-07-04T17:00:00Z");
+        assert_eq!(b["tokens"]["total"], 300);
+        assert_eq!(b["models"][0], "claude-opus-4-8");
+        assert_eq!(b["active"], true);
+        assert_eq!(b["projection"]["projected_cost_usd"], 6.0);
+        assert_eq!(b["projection"]["remaining_seconds"], 9_600);
+        assert_eq!(value["totals"]["total"], 300);
     }
 
     #[test]
