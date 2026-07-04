@@ -14,9 +14,25 @@
       B cargo-dist distribution, C Homebrew tap, D vhs demo
   - [x] 5A — `tycho blocks` (2026-07-04)
   - [x] licensing — MIT (LICENSE + Cargo.toml, 2026-07-04)
-  - [ ] 5B — cargo-dist release automation + `cargo install` docs
-  - [ ] 5C — Homebrew tap
+  - [x] 5B — cargo-dist release automation + install docs (2026-07-04)
+  - [x] 5C — Homebrew tap (folded into 5B; repo + formula config done)
   - [ ] 5D — vhs demo recording in the README
+
+## Phase 5B review (at gate, 2026-07-04)
+
+- cargo-dist 0.32.0 wired: `dist-workspace.toml` (5 targets, shell/powershell/
+  homebrew installers, tap = vscarpenter/homebrew-tap, formula = tycho),
+  generated `.github/workflows/release.yml`, `[profile.dist]` +
+  repository/homepage in Cargo.toml.
+- `dist plan` resolves all five targets + three installers clean; fmt/clippy/
+  release/tests still green. README Install section rewritten (cargo/source
+  works today; brew/shell/ps installers ship with each tagged release).
+- Public tap repo created: github.com/vscarpenter/homebrew-tap.
+- Boundary held: NO release cut. release.yml publishes only on a `v*` tag.
+- REMAINING for a real release (needs Vinny): add a `HOMEBREW_TAP_TOKEN`
+  repo secret (PAT with write to homebrew-tap), bump version if desired, then
+  `git tag vX.Y.Z && git push --tags`.
+- Next: 5D (vhs demo) — its own design gate.
 
 ## Phase 5A review (at gate, 2026-07-04)
 

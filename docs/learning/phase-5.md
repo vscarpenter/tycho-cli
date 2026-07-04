@@ -84,3 +84,29 @@ rather than calling `Utc::now()`, so `the_active_block_gets_a_projection` can
 place `now` exactly 2.5 hours into a window and assert the cost doubles. The
 binary passes `Utc::now()`; the tests pass a literal. Same discipline, second
 outing — see `docs/learning/phase-4.md §3`.
+
+## 5B · Distribution (cargo-dist)
+
+**Where:** `dist-workspace.toml`, `.github/workflows/release.yml`,
+`Cargo.toml` (`[profile.dist]`, `repository`/`homepage`).
+
+`dist init` generated a whole release pipeline from a dozen lines of config:
+on a version tag, GitHub Actions builds an archive per target, cuts a Release,
+and generates shell/PowerShell installers plus a Homebrew formula pushed to a
+separate tap repo. Two things worth internalizing as a Rust newcomer:
+
+1. **Target triples, and why each builds on its own runner.** The five targets
+   (`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, ...) are the same
+   triples `rustup target add` speaks. The generated CI doesn't cross-compile
+   them from one machine — it runs each on its *native* GitHub runner (macOS
+   builds the Darwin targets, Ubuntu the Linux ones, Windows the MSVC one).
+   That's the Rust-vs-Go contrast: Go cross-compiles anywhere by setting
+   `GOOS/GOARCH` because its toolchain is self-contained, but Rust linking to a
+   platform's C runtime (libc, MSVC) generally wants that platform's linker, so
+   "build it where it runs" is the boring, reliable default cargo-dist chose.
+
+2. **A dedicated release profile.** `[profile.dist]` inherits `release` and
+   adds `lto = "thin"` — link-time optimization is worth the slower build for a
+   shipped artifact but not for the inner dev loop, so it lives on its own
+   profile rather than in `[profile.release]`. Same idea as the `now` split:
+   the expensive-but-correct path is opt-in, kept off the fast path.

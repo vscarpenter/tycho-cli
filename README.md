@@ -21,15 +21,30 @@ Caching saved you $15769.62 (5.2x leverage).
 
 ## Install
 
-Requires Rust 1.88+ (stable).
+The package is `tycho-cli`; the installed binary is `tycho`.
+
+**From source** (works today; requires Rust 1.88+ stable):
 
 ```sh
-git clone https://github.com/vscarpenter/tycho-cli
-cd tycho-cli
-cargo install --path .
+cargo install --git https://github.com/vscarpenter/tycho-cli
 ```
 
-The package is `tycho-cli`; the installed binary is `tycho`.
+**Prebuilt binaries and installers** (available with each tagged release):
+
+```sh
+# Homebrew (macOS/Linux)
+brew install vscarpenter/tap/tycho
+
+# Shell installer (macOS/Linux)
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/vscarpenter/tycho-cli/releases/latest/download/tycho-cli-installer.sh | sh
+
+# PowerShell installer (Windows)
+powershell -c "irm https://github.com/vscarpenter/tycho-cli/releases/latest/download/tycho-cli-installer.ps1 | iex"
+```
+
+Prebuilt archives for macOS (arm64/x86_64), Linux (arm64/x86_64), and Windows
+(x86_64) are attached to each [GitHub Release](https://github.com/vscarpenter/tycho-cli/releases).
 
 ## Quickstart
 
