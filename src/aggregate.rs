@@ -89,7 +89,7 @@ pub fn daily(
 
 /// True when the event's calendar date in `tz` falls inside the inclusive
 /// `since..=until` range. Shared by every report.
-fn in_range(
+pub(crate) fn in_range(
     event: &UsageEvent,
     tz: Tz,
     since: Option<NaiveDate>,
