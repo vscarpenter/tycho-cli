@@ -47,6 +47,9 @@ pub struct UsageEvent {
     pub timestamp: DateTime<Utc>,
     /// Session UUID; subagent transcripts carry the parent session's id.
     pub session_id: Option<String>,
+    /// Encoded project directory the transcript was found under. Empty at
+    /// parse time; the scan pipeline fills it from the file's location.
+    pub project: String,
     /// Model id, e.g. `claude-opus-4-8`.
     pub model: String,
     /// Token counts for this message.
@@ -225,6 +228,7 @@ pub fn parse_line(line: &str) -> Result<UsageEvent, SkipReason> {
     Ok(UsageEvent {
         timestamp,
         session_id: raw.session_id,
+        project: String::new(),
         model,
         usage: usage.into_token_usage(),
         cost_usd: raw.cost_usd,

@@ -97,6 +97,7 @@ mod tests {
         UsageEvent {
             timestamp: utc.parse::<DateTime<Utc>>().unwrap(),
             session_id: None,
+            project: String::new(),
             model: "m".into(),
             usage: TokenUsage {
                 input: 1,

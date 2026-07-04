@@ -29,6 +29,8 @@ pub struct ScanSummary {
     pub files_unreadable: u64,
     /// Duplicate streaming records collapsed (ADR 0002).
     pub duplicates_collapsed: u64,
+    /// Total size of the parsed transcript files, in bytes.
+    pub bytes_scanned: u64,
     /// Line-level parse counters merged across files.
     pub stats: ParseStats,
 }
@@ -58,13 +60,15 @@ pub fn scan(roots: &[PathBuf], filter: EventFilter<'_>) -> ScanOutcome {
             continue;
         };
         summary.files_scanned += 1;
+        summary.bytes_scanned += std::fs::metadata(&file.path).map(|m| m.len()).unwrap_or(0);
         summary.stats.merge(&file_scan.stats);
-        for event in file_scan.events {
+        for mut event in file_scan.events {
             if let Some(model) = filter.model
                 && !event.model.contains(model)
             {
                 continue;
             }
+            event.project = file.project.clone();
             deduper.insert(event);
         }
     }
@@ -145,6 +149,16 @@ mod tests {
         assert_eq!(outcome.summary.files_scanned, 3);
         assert_eq!(outcome.summary.files_unreadable, 0);
         assert_eq!(outcome.summary.stats.events, 4);
+        assert!(outcome.summary.bytes_scanned > 0);
+    }
+
+    #[test]
+    fn events_carry_the_project_they_were_found_under() {
+        let root = fixture_root();
+        let mut outcome = scan(&[root.path().to_path_buf()], EventFilter::default());
+        outcome.events.sort_by(|a, b| a.project.cmp(&b.project));
+        assert_eq!(outcome.events[0].project, "-Users-v-Projects-gsd");
+        assert_eq!(outcome.events[1].project, "-Users-v-Projects-other");
     }
 
     #[test]

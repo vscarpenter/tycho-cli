@@ -64,6 +64,7 @@ mod tests {
         UsageEvent {
             timestamp: Utc.timestamp_opt(secs, 0).unwrap(),
             session_id: Some("sess-1".into()),
+            project: String::new(),
             model: "m".into(),
             usage: TokenUsage {
                 input: 10,
