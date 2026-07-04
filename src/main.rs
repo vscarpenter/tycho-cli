@@ -2,10 +2,12 @@
 //! owns process concerns only: argument parsing, environment access, and
 //! exit codes (0 success, 1 runtime error, 2 usage error).
 
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Context;
+use chrono::Utc;
 use chrono_tz::Tz;
 use clap::{CommandFactory, Parser};
 
@@ -14,7 +16,7 @@ use tycho::cost::{self, Coster};
 use tycho::pricing::{self, PricingTable};
 use tycho::report::{csv, json, table};
 use tycho::scan::{self, EventFilter, ScanOutcome};
-use tycho::{aggregate, discover};
+use tycho::{aggregate, discover, tui};
 
 fn main() -> ExitCode {
     let cli = Cli::parse(); // usage errors exit with code 2 here
@@ -31,6 +33,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     let tz = cli::resolve_timezone(&cli.global);
     let roots = resolve_roots(&cli)?;
     let pricing = resolve_pricing(&cli)?;
+
+    if matches!(cli.effective_command(), Command::Live) {
+        return run_live(&cli, tz, &roots, pricing);
+    }
+
     let filter = EventFilter {
         project: cli.global.project.as_deref(),
         model: cli.global.model.as_deref(),
@@ -49,6 +56,37 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 
     println!("{}", render(&cli, tz, &roots, outcome, unpriced, &pricing));
     Ok(())
+}
+
+/// `tycho live`: an interactive dashboard on a TTY, or one JSON snapshot when
+/// `--json` is set or stdout is not a terminal (so it stays scriptable and
+/// never corrupts a redirected stream).
+fn run_live(cli: &Cli, tz: Tz, roots: &[PathBuf], pricing: PricingTable) -> anyhow::Result<()> {
+    reject_csv(cli.global.csv);
+    let g = &cli.global;
+    if g.json || !std::io::stdout().is_terminal() {
+        let state = tui::compute_snapshot(
+            roots,
+            g.project.as_deref(),
+            g.model.as_deref(),
+            g.mode.into(),
+            &pricing,
+            tz,
+            Utc::now(),
+        );
+        println!("{}", json::live(&state, tz.name()));
+        Ok(())
+    } else {
+        tui::run(
+            roots.to_vec(),
+            g.project.clone(),
+            g.model.clone(),
+            g.mode.into(),
+            pricing,
+            tz,
+        )?;
+        Ok(())
+    }
 }
 
 fn resolve_roots(cli: &Cli) -> anyhow::Result<Vec<PathBuf>> {
@@ -158,6 +196,7 @@ fn render(
                 table::doctor(&report)
             }
         }
+        Command::Live => unreachable!("live is handled in run_live before render"),
     }
 }
 

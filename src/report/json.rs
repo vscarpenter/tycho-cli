@@ -357,6 +357,93 @@ pub fn doctor(report: &DoctorReport) -> String {
     to_json(&out)
 }
 
+#[derive(Serialize)]
+struct BurnOut {
+    tokens_per_min: f64,
+    cost_per_hour_usd: f64,
+    per_minute: [u64; 10],
+}
+
+#[derive(Serialize)]
+struct ModelLineOut {
+    model: String,
+    tokens: u64,
+    cost_usd: f64,
+    hit_rate: Option<f64>,
+}
+
+#[derive(Serialize)]
+struct SessionLineOut {
+    session_id: String,
+    project: String,
+    tokens: u64,
+    cost_usd: f64,
+    last_activity: String,
+    active: bool,
+}
+
+#[derive(Serialize)]
+struct ActiveOut {
+    project: String,
+    idle_seconds: i64,
+}
+
+#[derive(Serialize)]
+struct LiveOut {
+    command: &'static str,
+    timezone: String,
+    generated_at: String,
+    today: CacheRowOut,
+    burn: BurnOut,
+    models: Vec<ModelLineOut>,
+    sessions: Vec<SessionLineOut>,
+    active: Option<ActiveOut>,
+}
+
+/// Render one live dashboard snapshot as pretty-printed JSON. This is what
+/// `tycho live --json` (or `live` with a non-TTY stdout) prints.
+pub fn live(state: &crate::tui::state::DashboardState, timezone: &str) -> String {
+    use rust_decimal::prelude::ToPrimitive;
+    let out = LiveOut {
+        command: "live",
+        timezone: timezone.to_owned(),
+        generated_at: rfc3339(state.generated_at),
+        today: CacheRowOut::from(&state.today),
+        burn: BurnOut {
+            tokens_per_min: state.burn.tokens_per_min,
+            cost_per_hour_usd: state.burn.cost_per_hour.to_f64().unwrap_or(0.0),
+            per_minute: state.burn.per_minute,
+        },
+        models: state
+            .models
+            .iter()
+            .map(|m| ModelLineOut {
+                model: m.model.clone(),
+                tokens: m.tokens,
+                cost_usd: m.cost.to_f64().unwrap_or(0.0),
+                hit_rate: m.hit_rate.and_then(|r| r.to_f64()),
+            })
+            .collect(),
+        sessions: state
+            .sessions
+            .iter()
+            .map(|s| SessionLineOut {
+                session_id: s.session_id.clone(),
+                project: s.project.clone(),
+                tokens: s.tokens,
+                cost_usd: s.cost.to_f64().unwrap_or(0.0),
+                last_activity: rfc3339(s.last_activity),
+                active: s.active,
+            })
+            .collect(),
+        active: state.active.as_ref().map(|a| ActiveOut {
+            project: a.project.clone(),
+            idle_seconds: a.idle.num_seconds(),
+        }),
+    };
+    to_json(&out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -490,6 +577,63 @@ mod tests {
         };
         let value: serde_json::Value = serde_json::from_str(&models(&m, "UTC")).unwrap();
         assert_eq!(value["models"][0]["model"], "claude-opus-4-8");
+    }
+
+    #[test]
+    fn live_contract() {
+        use crate::tui::state::{ActiveSession, BurnRate, DashboardState, ModelLine, SessionLine};
+        let totals = Totals {
+            input: 100,
+            output: 200,
+            cache_write_5m: 50,
+            cache_write_1h: 10,
+            cache_read: 1_000,
+            cost: "0.64".parse().unwrap(),
+        };
+        let state = DashboardState {
+            today: crate::cache::CacheEconomics {
+                model: "Total".into(),
+                totals,
+                hit_rate: Some("0.86".parse().unwrap()),
+                actual_cost: "0.64".parse().unwrap(),
+                counterfactual_cost: "1.08".parse().unwrap(),
+                savings: "0.44".parse().unwrap(),
+                leverage: Some("1.68".parse().unwrap()),
+            },
+            burn: BurnRate {
+                tokens_per_min: 12.0,
+                cost_per_hour: "0.9".parse().unwrap(),
+                per_minute: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            },
+            models: vec![ModelLine {
+                model: "claude-opus-4-8".into(),
+                tokens: 1_360,
+                cost: "0.64".parse().unwrap(),
+                hit_rate: Some("0.86".parse().unwrap()),
+            }],
+            sessions: vec![SessionLine {
+                session_id: "s1".into(),
+                project: "gsd".into(),
+                tokens: 1_360,
+                cost: "0.64".parse().unwrap(),
+                last_activity: "2026-07-04T11:59:00Z".parse().unwrap(),
+                active: true,
+            }],
+            active: Some(ActiveSession {
+                project: "gsd".into(),
+                idle: chrono::Duration::seconds(20),
+            }),
+            generated_at: "2026-07-04T12:00:00Z".parse().unwrap(),
+        };
+        let value: serde_json::Value = serde_json::from_str(&live(&state, "UTC")).unwrap();
+        assert_eq!(value["command"], "live");
+        assert_eq!(value["generated_at"], "2026-07-04T12:00:00Z");
+        assert_eq!(value["today"]["tokens"]["total"], 1_360);
+        assert_eq!(value["today"]["hit_rate"], 0.86);
+        assert_eq!(value["burn"]["tokens_per_min"], 12.0);
+        assert_eq!(value["active"]["project"], "gsd");
+        assert_eq!(value["models"][0]["model"], "claude-opus-4-8");
+        assert_eq!(value["sessions"][0]["active"], true);
     }
 
     #[test]

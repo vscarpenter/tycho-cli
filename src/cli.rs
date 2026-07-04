@@ -49,6 +49,8 @@ pub enum Command {
     Cache,
     /// Data health: files, skipped lines, duplicates, date span
     Doctor,
+    /// Live dashboard: today's usage, burn rate, and the active session
+    Live,
 }
 
 /// `--sort` values for the sessions report.

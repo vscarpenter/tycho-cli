@@ -297,6 +297,20 @@ fn cache_table_has_the_headline() {
 }
 
 #[test]
+fn live_json_emits_a_snapshot() {
+    // Piped stdout is non-TTY, so bare `live` also emits JSON; assert both.
+    for args in [&["live", "--json"][..], &["live"][..]] {
+        let value = stdout_json(tycho().args(args));
+        assert_eq!(value["command"], "live");
+        assert!(value["generated_at"].is_string());
+        assert!(value["today"]["tokens"]["total"].is_number());
+        assert_eq!(value["burn"]["per_minute"].as_array().unwrap().len(), 10);
+        assert!(value["models"].is_array());
+        assert!(value["sessions"].is_array());
+    }
+}
+
+#[test]
 fn invalid_pricing_file_is_a_runtime_error() {
     tycho()
         .args(["daily", "--pricing", "/definitely/not/a/file.toml"])
