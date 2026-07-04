@@ -9,6 +9,7 @@ use chrono::{DateTime, Duration, Utc};
 use chrono_tz::Tz;
 use rust_decimal::Decimal;
 
+use crate::aggregate::{self, SessionSort};
 use crate::cache::{self, CacheEconomics};
 use crate::pricing::PricingTable;
 use crate::record::UsageEvent;
@@ -166,14 +167,32 @@ pub fn burn_rate(events: &[UsageEvent], now: DateTime<Utc>) -> BurnRate {
     }
 }
 
-/// Roll today's events into session rows (fully implemented in the next
-/// task); a stub for now so the crate compiles.
-fn session_lines(_events: Vec<UsageEvent>, _tz: Tz) -> Vec<SessionLine> {
-    Vec::new()
+/// Roll today's events into session rows, newest activity first.
+fn session_lines(events: Vec<UsageEvent>, tz: Tz) -> Vec<SessionLine> {
+    let report = aggregate::sessions(events, tz, None, None, SessionSort::Start, None);
+    let mut lines: Vec<SessionLine> = report
+        .sessions
+        .into_iter()
+        .map(|s| SessionLine {
+            session_id: s.session_id,
+            project: s.project,
+            tokens: s.totals.total(),
+            cost: s.totals.cost,
+            last_activity: s.end,
+            active: false,
+        })
+        .collect();
+    lines.sort_by_key(|line| std::cmp::Reverse(line.last_activity));
+    lines
 }
 
-/// Flag the live session (fully implemented in the next task).
-fn mark_active(sessions: Vec<SessionLine>, _active: Option<&ActiveSession>) -> Vec<SessionLine> {
+/// Flag the most-recently-active session when a live session was detected.
+fn mark_active(mut sessions: Vec<SessionLine>, active: Option<&ActiveSession>) -> Vec<SessionLine> {
+    if active.is_some()
+        && let Some(first) = sessions.first_mut()
+    {
+        first.active = true;
+    }
     sessions
 }
 
@@ -282,6 +301,38 @@ mod tests {
         let mtimes = collect_mtimes(&files);
         assert_eq!(mtimes.len(), 1);
         assert_eq!(mtimes[0].0, "-Users-v-Projects-gsd");
+    }
+
+    #[test]
+    fn sessions_are_newest_activity_first_with_one_active() {
+        let table = PricingTable::embedded();
+        let now: DateTime<Utc> = "2026-07-04T12:00:00Z".parse().unwrap();
+        let mut older = priced("claude-opus-4-8", "2026-07-04T08:00:00Z", U);
+        older.session_id = Some("old".into());
+        let mut newer = priced("claude-opus-4-8", "2026-07-04T11:59:00Z", U);
+        newer.session_id = Some("new".into());
+        newer.project = "-Users-v-Projects-gsd".into();
+        // one fresh file makes gsd active
+        let mtimes = vec![(
+            "-Users-v-Projects-gsd".to_string(),
+            (now - Duration::seconds(20)).into(),
+        )];
+        let state =
+            DashboardState::derive(vec![older, newer], &mtimes, now, chrono_tz::UTC, &table);
+        assert_eq!(state.sessions.len(), 2);
+        assert_eq!(state.sessions[0].session_id, "new");
+        assert!(state.sessions[0].active);
+        assert!(!state.sessions[1].active);
+    }
+
+    #[test]
+    fn sessions_have_no_active_flag_when_nothing_is_live() {
+        let table = PricingTable::embedded();
+        let now: DateTime<Utc> = "2026-07-04T12:00:00Z".parse().unwrap();
+        let e = priced("claude-opus-4-8", "2026-07-04T08:00:00Z", U);
+        let state = DashboardState::derive(vec![e], &[], now, chrono_tz::UTC, &table);
+        assert_eq!(state.sessions.len(), 1);
+        assert!(!state.sessions[0].active);
     }
 
     #[test]
