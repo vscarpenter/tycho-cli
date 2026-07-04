@@ -114,3 +114,101 @@ fn table_output_has_formatted_counts_and_a_totals_row() {
     assert!(rendered.contains("Total"), "totals row:\n{rendered}");
     assert!(rendered.contains("1,510"), "grand total:\n{rendered}");
 }
+
+#[test]
+fn monthly_json_buckets_the_whole_fixture_into_one_month() {
+    let value = stdout_json(tycho().args(["monthly", "--json"]));
+    let months = value["months"].as_array().unwrap();
+    assert_eq!(months.len(), 1);
+    assert_eq!(months[0]["month"], "2026-07");
+    assert_eq!(months[0]["tokens"]["total"], 1_510);
+}
+
+#[test]
+fn sessions_json_spans_subagents_and_sorts_by_recent_start() {
+    let value = stdout_json(tycho().args(["sessions", "--json"]));
+    assert_eq!(value["matching_sessions"], 2);
+    let sessions = value["sessions"].as_array().unwrap();
+
+    // sess-b started 2026-07-03, most recent first.
+    assert_eq!(sessions[0]["session_id"], "sess-b");
+    assert_eq!(sessions[0]["start"], "2026-07-03T04:30:00Z"); // subagent record
+    assert_eq!(sessions[0]["duration_seconds"], 19_800);
+    assert_eq!(
+        sessions[0]["models"],
+        serde_json::json!(["claude-opus-4-8"])
+    );
+    assert_eq!(sessions[0]["tokens"]["total"], 50);
+
+    // sess-a spans two days; the duplicate collapsed to the record written
+    // at 10:00:02, so the span starts there.
+    assert_eq!(sessions[1]["session_id"], "sess-a");
+    assert_eq!(sessions[1]["duration_seconds"], 86_398);
+    assert_eq!(
+        sessions[1]["models"],
+        serde_json::json!(["claude-opus-4-8", "claude-sonnet-5"])
+    );
+    assert_eq!(sessions[1]["tokens"]["total"], 1_460);
+}
+
+#[test]
+fn sessions_limit_keeps_grand_totals() {
+    let value =
+        stdout_json(tycho().args(["sessions", "--json", "--limit", "1", "--sort", "tokens"]));
+    assert_eq!(value["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(value["sessions"][0]["session_id"], "sess-a"); // largest
+    assert_eq!(value["matching_sessions"], 2);
+    assert_eq!(value["totals"]["total"], 1_510);
+}
+
+#[test]
+fn projects_json_rolls_up_with_session_counts() {
+    let value = stdout_json(tycho().args(["projects", "--json"]));
+    let projects = value["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 2);
+    assert_eq!(projects[0]["project"], "-Users-v-Projects-alpha");
+    assert_eq!(projects[0]["sessions"], 1);
+    assert_eq!(projects[0]["tokens"]["total"], 1_460);
+    assert_eq!(projects[1]["project"], "-Users-v-Projects-beta");
+    assert_eq!(projects[1]["last_activity"], "2026-07-03T10:00:00Z");
+}
+
+#[test]
+fn models_json_rolls_up_largest_first() {
+    let value = stdout_json(tycho().args(["models", "--json"]));
+    let models = value["models"].as_array().unwrap();
+    assert_eq!(models[0]["model"], "claude-opus-4-8");
+    assert_eq!(models[0]["tokens"]["total"], 1_410);
+    assert_eq!(models[1]["model"], "claude-sonnet-5");
+    assert_eq!(models[1]["tokens"]["total"], 100);
+}
+
+#[test]
+fn doctor_json_reports_health_counters() {
+    let value = stdout_json(tycho().args(["doctor", "--json"]));
+    assert_eq!(value["files"]["scanned"], 4);
+    assert_eq!(value["lines"]["total"], 10);
+    assert_eq!(value["lines"]["events"], 5);
+    assert_eq!(value["lines"]["malformed"], 1);
+    assert_eq!(value["lines"]["not_assistant"], 2);
+    assert_eq!(value["lines"]["missing_usage"], 1);
+    assert_eq!(value["lines"]["synthetic"], 1);
+    assert_eq!(value["duplicates_collapsed"], 1);
+    // The dedup survivor of msg_a1 is the 10:00:02 record.
+    assert_eq!(value["date_span"]["first"], "2026-07-01T10:00:02Z");
+    assert_eq!(value["date_span"]["last"], "2026-07-03T10:00:00Z");
+    assert!(value["files"]["bytes"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn daily_csv_emits_data_rows() {
+    let assert = tycho().args(["daily", "--csv"]).assert().success();
+    let rendered = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(rendered.starts_with("date,input,output"));
+    assert!(rendered.contains("2026-07-01,100,200,50,10,1000,1360"));
+}
+
+#[test]
+fn csv_on_models_is_a_usage_error() {
+    tycho().args(["models", "--csv"]).assert().code(2);
+}

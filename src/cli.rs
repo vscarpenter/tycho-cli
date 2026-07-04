@@ -30,6 +30,44 @@ pub struct Cli {
 pub enum Command {
     /// Per-day token usage with a totals row (the default command)
     Daily,
+    /// Per-month token usage with a totals row
+    Monthly,
+    /// Per-session usage: start, duration, project, models, tokens
+    Sessions {
+        /// Show at most N sessions (totals still cover all matches)
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+        /// Sort order, always descending
+        #[arg(long, value_enum, default_value_t = SortKey::Start)]
+        sort: SortKey,
+    },
+    /// Rollup by project directory
+    Projects,
+    /// Rollup by model
+    Models,
+    /// Data health: files, skipped lines, duplicates, date span
+    Doctor,
+}
+
+/// `--sort` values for the sessions report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum SortKey {
+    /// Most recently started first
+    Start,
+    /// Largest total token count first
+    Tokens,
+    /// Longest wall-clock span first
+    Duration,
+}
+
+impl From<SortKey> for crate::aggregate::SessionSort {
+    fn from(key: SortKey) -> Self {
+        match key {
+            SortKey::Start => Self::Start,
+            SortKey::Tokens => Self::Tokens,
+            SortKey::Duration => Self::Duration,
+        }
+    }
 }
 
 /// Flags shared by every command. `global = true` lets them appear before
@@ -67,6 +105,10 @@ pub struct GlobalArgs {
     /// Emit machine-readable JSON instead of a table
     #[arg(long, global = true)]
     pub json: bool,
+
+    /// Emit CSV (daily, monthly, and sessions only)
+    #[arg(long, global = true, conflicts_with = "json")]
+    pub csv: bool,
 }
 
 impl Cli {
@@ -160,5 +202,42 @@ mod tests {
         // System zone on the test machine is unknown; the contract is only
         // that resolution succeeds and yields *some* zone.
         let _ = resolve_timezone(&global(&[]));
+    }
+
+    #[test]
+    fn sessions_accepts_limit_and_sort() {
+        let cli = parse(&["sessions", "--limit", "5", "--sort", "tokens"]).unwrap();
+        match cli.effective_command() {
+            Command::Sessions { limit, sort } => {
+                assert_eq!(limit, Some(5));
+                assert_eq!(sort, SortKey::Tokens);
+            }
+            other => panic!("expected sessions, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn invalid_sort_key_is_a_usage_error() {
+        assert_eq!(
+            parse(&["sessions", "--sort", "alphabetical"])
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidValue
+        );
+    }
+
+    #[test]
+    fn csv_conflicts_with_json() {
+        assert_eq!(
+            parse(&["daily", "--csv", "--json"]).unwrap_err().kind(),
+            ErrorKind::ArgumentConflict
+        );
+    }
+
+    #[test]
+    fn every_new_subcommand_parses() {
+        for cmd in ["monthly", "projects", "models", "doctor"] {
+            assert!(parse(&[cmd]).is_ok(), "{cmd} should parse");
+        }
     }
 }
