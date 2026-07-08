@@ -246,32 +246,52 @@ struct RawCodexInfo {
     last_token_usage: Option<RawUsage>,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum RawTimestamp {
-    String(String),
-    I64(i64),
-    U64(u64),
-    F64(f64),
+/// A permissive-but-bounded timestamp: RFC3339 strings or integer epoch
+/// seconds within [2000-01-01, 2100-01-01). Anything else deserializes to
+/// `None` so the record skips as `MissingTimestamp` instead of inventing
+/// absurd dates (observed failure: millisecond epochs landing in year
+/// ~58486). Non-scalar JSON still fails the whole record, as before.
+struct RawTimestamp(Option<DateTime<Utc>>);
+
+const EPOCH_MIN: i64 = 946_684_800; // 2000-01-01T00:00:00Z
+const EPOCH_MAX: i64 = 4_102_444_800; // 2100-01-01T00:00:00Z
+
+fn bounded_epoch(value: i64) -> Option<DateTime<Utc>> {
+    (EPOCH_MIN..EPOCH_MAX)
+        .contains(&value)
+        .then(|| Utc.timestamp_opt(value, 0).single())
+        .flatten()
 }
 
 impl RawTimestamp {
     fn to_utc(&self) -> Option<DateTime<Utc>> {
-        match self {
-            Self::String(value) => value
-                .parse::<DateTime<Utc>>()
-                .ok()
-                .or_else(|| value.parse::<i64>().ok().and_then(unix_seconds)),
-            Self::I64(value) => unix_seconds(*value),
-            Self::U64(value) => i64::try_from(*value).ok().and_then(unix_seconds),
-            Self::F64(value) if value.is_finite() => unix_seconds(value.trunc() as i64),
-            Self::F64(_) => None,
-        }
+        self.0
     }
 }
 
-fn unix_seconds(value: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_opt(value, 0).single()
+impl<'de> serde::Deserialize<'de> for RawTimestamp {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = RawTimestamp;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an RFC3339 string or epoch seconds")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<RawTimestamp, E> {
+                Ok(RawTimestamp(v.parse::<DateTime<Utc>>().ok()))
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<RawTimestamp, E> {
+                Ok(RawTimestamp(bounded_epoch(v)))
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<RawTimestamp, E> {
+                Ok(RawTimestamp(i64::try_from(v).ok().and_then(bounded_epoch)))
+            }
+            fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<RawTimestamp, E> {
+                Ok(RawTimestamp(None))
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
 }
 
 impl RawUsage {
@@ -717,6 +737,34 @@ mod tests {
         assert_eq!(event.usage.input, 900);
         assert_eq!(event.usage.cache_read, 100);
         assert_eq!(event.usage.output, 100);
+    }
+
+    #[test]
+    fn millisecond_epochs_are_rejected_not_far_future() {
+        let line = r#"{"id":"resp_ms","created_at":1783476000000,"model":"gpt-5.4","usage":{"input_tokens":10,"output_tokens":1}}"#;
+        assert_eq!(parse_line(line).unwrap_err(), SkipReason::MissingTimestamp);
+    }
+
+    #[test]
+    fn integer_string_timestamps_are_not_epochs() {
+        // At one point "1234" parsed as 1970-01-01T00:20:34Z; it must skip instead.
+        let line = r#"{"type":"assistant","uuid":"u-1","timestamp":"1234","requestId":"req_A","message":{"id":"msg_A","model":"m","usage":{"input_tokens":1,"output_tokens":1}}}"#;
+        assert_eq!(parse_line(line).unwrap_err(), SkipReason::MissingTimestamp);
+    }
+
+    #[test]
+    fn plausible_integer_epochs_still_parse() {
+        let line = r#"{"id":"resp_ok","created_at":1783476000,"model":"gpt-5.4","usage":{"input_tokens":10,"output_tokens":1}}"#;
+        assert_eq!(
+            parse_line(line).unwrap().timestamp.to_rfc3339(),
+            "2026-07-08T02:00:00+00:00"
+        );
+    }
+
+    #[test]
+    fn float_timestamps_are_rejected() {
+        let line = r#"{"id":"resp_f","created_at":1783476000.5,"model":"gpt-5.4","usage":{"input_tokens":10,"output_tokens":1}}"#;
+        assert_eq!(parse_line(line).unwrap_err(), SkipReason::MissingTimestamp);
     }
 
     #[test]
