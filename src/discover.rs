@@ -126,6 +126,13 @@ fn project_name(root: &Path, provider: Provider, file: &Path) -> String {
         .unwrap_or_else(|| "(root)".to_owned())
 }
 
+/// Replicate Claude Code's project-directory encoding ('/' and '.' become
+/// '-'). Lossy by design; applied to Codex cwd values so one repo shows as
+/// one project row regardless of provider.
+pub fn encode_project(path: &str) -> String {
+    path.replace(['/', '.'], "-")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

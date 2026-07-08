@@ -14,7 +14,7 @@ use std::path::Path;
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 
-use crate::discover::Provider;
+use crate::discover::{Provider, encode_project};
 
 /// Deduplicated token counts for one API message, with cache writes split
 /// by TTL (see `docs/SCHEMA.md`).
@@ -218,8 +218,6 @@ struct RawCodexPayload {
     session_id: Option<String>,
     cwd: Option<String>,
     model: Option<String>,
-    #[serde(rename = "turnId", alias = "turn_id")]
-    turn_id: Option<String>,
     info: Option<RawCodexInfo>,
 }
 
@@ -343,8 +341,7 @@ struct LineParser {
     codex_session_id: Option<String>,
     codex_project: Option<String>,
     codex_model: Option<String>,
-    codex_turn_id: Option<String>,
-    codex_usage_index: u64,
+    usage_index: u64,
 }
 
 impl Default for LineParser {
@@ -355,8 +352,7 @@ impl Default for LineParser {
             codex_session_id: None,
             codex_project: None,
             codex_model: None,
-            codex_turn_id: None,
-            codex_usage_index: 0,
+            usage_index: 0,
         }
     }
 }
@@ -412,7 +408,7 @@ impl LineParser {
                     .or_else(|| payload.id.clone())
                     .or_else(|| self.fallback_session_id.clone());
                 if let Some(cwd) = &payload.cwd {
-                    self.codex_project = Some(cwd.clone());
+                    self.codex_project = Some(encode_project(cwd));
                 }
             }
             Some("turn_context") => {
@@ -420,9 +416,8 @@ impl LineParser {
                     self.codex_model = Some(model.clone());
                 }
                 if let Some(cwd) = &payload.cwd {
-                    self.codex_project = Some(cwd.clone());
+                    self.codex_project = Some(encode_project(cwd));
                 }
-                self.codex_turn_id = payload.turn_id.clone();
             }
             _ => {}
         }
@@ -441,11 +436,15 @@ impl LineParser {
         if payload.payload_type.as_deref() != Some("token_count") {
             return Ok(None);
         }
-        let usage = payload
+        let Some(last_usage) = payload
             .info
             .as_ref()
             .and_then(|info| info.last_token_usage.as_ref())
-            .and_then(RawUsage::openai_token_usage)
+        else {
+            return Ok(None); // rate-limit heartbeat, not a usage record
+        };
+        let usage = last_usage
+            .openai_token_usage()
             .ok_or(SkipReason::MissingUsage)?;
         let timestamp = raw
             .timestamp
@@ -456,22 +455,14 @@ impl LineParser {
             .codex_model
             .clone()
             .or_else(|| payload.model.clone())
-            .ok_or(SkipReason::MissingModel)?;
-        self.codex_usage_index += 1;
+            .unwrap_or_else(|| "codex-unknown".to_owned());
+        self.usage_index += 1;
+        let file_stem = self.fallback_session_id.as_deref().unwrap_or("(unknown)");
+        let dedup_key = DedupKey::Uuid(format!("codex:{file_stem}:{}", self.usage_index));
         let session_id = self
             .codex_session_id
             .clone()
             .or_else(|| self.fallback_session_id.clone());
-        let session_label = session_id.as_deref().unwrap_or("(unknown)").to_owned();
-        let turn_label = self
-            .codex_turn_id
-            .as_deref()
-            .unwrap_or("(unknown)")
-            .to_owned();
-        let dedup_key = DedupKey::Uuid(format!(
-            "codex:{session_label}:{turn_label}:{}",
-            self.codex_usage_index
-        ));
         Ok(Some(UsageEvent {
             timestamp,
             session_id,
@@ -753,13 +744,94 @@ mod tests {
         assert_eq!(scan.stats.events, 2);
         assert_eq!(scan.stats.not_assistant, 2);
         assert_eq!(scan.events[0].session_id.as_deref(), Some("codex-sess"));
-        assert_eq!(scan.events[0].project, "/Users/v/Projects/openai");
+        assert_eq!(scan.events[0].project, "-Users-v-Projects-openai");
         assert_eq!(scan.events[0].model, "gpt-5.5");
         assert_eq!(scan.events[0].usage.input, 600);
         assert_eq!(scan.events[0].usage.cache_read, 400);
         assert_eq!(scan.events[0].provider, Provider::Codex);
         assert_eq!(scan.events[1].usage.input, 200);
         assert_ne!(scan.events[0].dedup_key, scan.events[1].dedup_key);
+    }
+
+    #[test]
+    fn codex_dedup_keys_do_not_collide_across_files() {
+        // Two rollout files for one resumed session, no turn ids: distinct
+        // events must both survive the cross-file Deduper.
+        let dir = tempfile::tempdir().unwrap();
+        let meta = r#"{"type":"session_meta","timestamp":"2026-07-08T01:00:00Z","payload":{"id":"sess-r","session_id":"sess-r","cwd":"/Users/v/Projects/gsd"}}"#;
+        let turn = r#"{"type":"turn_context","timestamp":"2026-07-08T01:00:01Z","payload":{"model":"gpt-5.5","cwd":"/Users/v/Projects/gsd"}}"#;
+        let count = |i, o| {
+            format!(
+                r#"{{"type":"event_msg","timestamp":"2026-07-08T01:00:02Z","payload":{{"type":"token_count","info":{{"last_token_usage":{{"input_tokens":{i},"output_tokens":{o}}}}}}}}}"#
+            )
+        };
+        std::fs::write(
+            dir.path().join("rollout-a.jsonl"),
+            [meta, turn, &count(1000, 100)].join("\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("rollout-b.jsonl"),
+            [meta, turn, &count(2000, 999)].join("\n"),
+        )
+        .unwrap();
+        let a = parse_file(&dir.path().join("rollout-a.jsonl"), Provider::Codex).unwrap();
+        let b = parse_file(&dir.path().join("rollout-b.jsonl"), Provider::Codex).unwrap();
+        assert_ne!(a.events[0].dedup_key, b.events[0].dedup_key);
+    }
+
+    #[test]
+    fn token_counts_without_turn_context_use_codex_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-old.jsonl");
+        std::fs::write(
+            &path,
+            [
+                r#"{"type":"session_meta","timestamp":"2026-07-08T01:00:00Z","payload":{"id":"s","session_id":"s","cwd":"/Users/v/Projects/gsd"}}"#,
+                r#"{"type":"event_msg","timestamp":"2026-07-08T01:00:02Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":10}}}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        let scan = parse_file(&path, Provider::Codex).unwrap();
+        assert_eq!(scan.stats.events, 1);
+        assert_eq!(scan.events[0].model, "codex-unknown");
+    }
+
+    #[test]
+    fn null_info_heartbeats_are_other_record_types() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-hb.jsonl");
+        std::fs::write(&path, r#"{"type":"event_msg","timestamp":"2026-07-08T01:00:02Z","payload":{"type":"token_count","info":null,"rate_limits":{}}}"#).unwrap();
+        let scan = parse_file(&path, Provider::Codex).unwrap();
+        assert_eq!(scan.stats.missing_usage, 0);
+        assert_eq!(scan.stats.not_assistant, 1);
+    }
+
+    #[test]
+    fn codex_projects_use_claude_encoding() {
+        // encode_project unit behavior plus the parse-time application.
+        assert_eq!(
+            crate::discover::encode_project("/Users/v/Projects/gsd"),
+            "-Users-v-Projects-gsd"
+        );
+        assert_eq!(
+            crate::discover::encode_project("/Users/v/dot.dir/x"),
+            "-Users-v-dot-dir-x"
+        );
+    }
+
+    #[test]
+    fn codex_roots_do_not_parse_openai_lines() {
+        // A standalone OpenAI response line under a Codex root must not fall
+        // through to the OpenAI parser; Codex roots only understand Codex
+        // record types.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-openai-line.jsonl");
+        std::fs::write(&path, r#"{"id":"resp_x","created_at":1783476000,"model":"gpt-5.4","usage":{"input_tokens":10,"output_tokens":1}}"#).unwrap();
+        let scan = parse_file(&path, Provider::Codex).unwrap();
+        assert_eq!(scan.stats.events, 0);
+        assert_eq!(scan.stats.not_assistant, 1);
     }
 
     #[test]
