@@ -102,10 +102,11 @@ fn run_live(cli: &Cli, tz: Tz, roots: &[SearchRoot], pricing: PricingTable) -> a
 }
 
 /// Blocks mirrors Claude's 5-hour usage-limit windows, so it defaults to
-/// Claude events unless the user widens it with --provider.
+/// Claude events unless the user widens it with --provider. An explicit
+/// `--provider all` maps to `None` (no filter), overriding that default.
 fn effective_provider(command_is_blocks: bool, arg: Option<ProviderArg>) -> Option<Provider> {
     match (command_is_blocks, arg) {
-        (_, Some(arg)) => Some(cli::map_provider_arg(arg)),
+        (_, Some(arg)) => cli::map_provider_arg(arg),
         (true, None) => Some(Provider::Claude),
         (false, None) => None,
     }
@@ -277,5 +278,13 @@ mod tests {
             effective_provider(false, Some(ProviderArg::Openai)),
             Some(Provider::External)
         );
+    }
+
+    #[test]
+    fn provider_all_disables_the_filter_even_for_blocks() {
+        // `all` means "no provider filter" — everything — and explicitly
+        // overrides the Claude-only default that blocks would otherwise apply.
+        assert_eq!(effective_provider(true, Some(ProviderArg::All)), None);
+        assert_eq!(effective_provider(false, Some(ProviderArg::All)), None);
     }
 }

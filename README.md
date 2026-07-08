@@ -97,8 +97,9 @@ that window closes. For the block containing "now", tycho projects where its
 cost lands if the current rate holds — `$2.05 so far, ~$4.10 projected by
 17:00`. Since the 5-hour reset is a Claude-specific mechanic, `blocks`
 defaults to Claude events only; pass `--provider codex` or `--provider openai`
-to widen it to another provider's events. Honors the usual filters and
-`--json`; `--csv` is not supported.
+to switch it to another provider's events, or `--provider all` to include
+every provider. Honors the usual filters and `--json`; `--csv` is not
+supported.
 
 ```
 $ tycho blocks
@@ -126,9 +127,10 @@ corrupts a pipe and can feed a status bar or script.
 
 Global flags on every command: `--dir <PATH>` (repeatable; replaces default
 search roots), `--since`/`--until` (inclusive dates in the report timezone),
-`--project <SUBSTR>`, `--model <SUBSTR>`, `--provider claude|codex|openai`
-(filters to one provider's events; `blocks` defaults to `claude` and this
-flag widens it), `--tz <IANA>`/`--utc`, `--mode auto|calculate|display`,
+`--project <SUBSTR>`, `--model <SUBSTR>`, `--provider claude|codex|openai|all`
+(filters to one provider's events, or `all` for every provider; `blocks`
+defaults to `claude` and this flag overrides it), `--tz <IANA>`/`--utc`,
+`--mode auto|calculate|display`,
 `--pricing <PATH>`, `--precise`, `--json`. `--csv` works on `daily`,
 `monthly`, and `sessions`.
 

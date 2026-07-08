@@ -24,14 +24,17 @@ line is sniffed:
 | `Codex` | `$CODEX_HOME/sessions`, or `~/.codex/sessions` when unset/empty | Only `event_msg` records where `payload.type == "token_count"` |
 | `External` | Any `--dir <PATH>` (repeatable; replaces the default roots entirely) | Format-sniffed per line: try the Claude `assistant` shape, then the Codex envelope, then a standalone OpenAI record — gated only on a top-level `usage` object being present |
 
-Because `External` detection is usage-gated rather than shape-gated, a
-`--dir` directory should contain only usage logs: any foreign JSONL line that
-happens to carry a `usage` object is counted as an event. `--provider
-claude|codex|openai` filters any report by the format that actually parsed
-each event, not by the root it was discovered under — a Claude-shaped line
-found via `--dir` still counts as `claude`, never `openai`. `blocks` defaults
-to `claude` (it mirrors Claude's 5-hour usage-limit windows) and widens with
-the flag.
+Under an `External` root the parser tries the Claude and Codex shapes first,
+then falls back to recognizing a standalone OpenAI record by the presence of a
+top-level `usage` object alone. Because that last step is usage-gated rather
+than shape-gated, a `--dir` directory should contain only usage logs: any
+foreign JSONL line that happens to carry a `usage` object is counted as an
+event. `--provider claude|codex|openai|all` filters any report by the format
+that actually parsed each event, not by the root it was discovered under — a
+Claude-shaped line found via `--dir` still counts as `claude`, never `openai`;
+`all` applies no provider filter. `blocks` defaults to `claude` (it mirrors
+Claude's 5-hour usage-limit windows); `--provider` overrides that, and
+`--provider all` widens it to every provider.
 
 ## Claude Code file layout
 

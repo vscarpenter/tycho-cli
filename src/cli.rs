@@ -100,7 +100,8 @@ pub struct GlobalArgs {
     #[arg(long, value_name = "SUBSTR", global = true)]
     pub model: Option<String>,
 
-    /// Only count events from one provider (blocks defaults to claude).
+    /// Only count events from one provider: claude, codex, openai, or all
+    /// (blocks defaults to claude; use `all` to include every provider).
     #[arg(long, global = true, value_enum)]
     pub provider: Option<ProviderArg>,
 
@@ -165,14 +166,18 @@ pub enum ProviderArg {
     Codex,
     /// Other transcripts ingested via `--dir` (discovered as `External`)
     Openai,
+    /// Every provider (no filter); use to widen `blocks` past its Claude default
+    All,
 }
 
-/// Maps the CLI-facing `--provider` value to the internal discovery enum.
-pub fn map_provider_arg(arg: ProviderArg) -> crate::discover::Provider {
+/// Maps a `--provider` value to the concrete provider to filter on. `all`
+/// maps to `None` — no filter, i.e. every provider is counted.
+pub fn map_provider_arg(arg: ProviderArg) -> Option<crate::discover::Provider> {
     match arg {
-        ProviderArg::Claude => crate::discover::Provider::Claude,
-        ProviderArg::Codex => crate::discover::Provider::Codex,
-        ProviderArg::Openai => crate::discover::Provider::External,
+        ProviderArg::Claude => Some(crate::discover::Provider::Claude),
+        ProviderArg::Codex => Some(crate::discover::Provider::Codex),
+        ProviderArg::Openai => Some(crate::discover::Provider::External),
+        ProviderArg::All => None,
     }
 }
 
@@ -310,5 +315,16 @@ mod tests {
     fn provider_flag_parses_before_the_subcommand() {
         let cli = parse(&["--provider", "codex", "daily"]).unwrap();
         assert_eq!(cli.global.provider, Some(ProviderArg::Codex));
+    }
+
+    #[test]
+    fn provider_all_parses_and_maps_to_no_filter() {
+        let cli = parse(&["--provider", "all", "blocks"]).unwrap();
+        assert_eq!(cli.global.provider, Some(ProviderArg::All));
+        assert_eq!(map_provider_arg(ProviderArg::All), None);
+        assert_eq!(
+            map_provider_arg(ProviderArg::Codex),
+            Some(crate::discover::Provider::Codex)
+        );
     }
 }
