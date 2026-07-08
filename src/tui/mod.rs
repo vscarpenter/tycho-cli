@@ -54,6 +54,7 @@ pub fn compute_snapshot(
         EventFilter {
             project: None,
             model,
+            provider: None,
         },
     );
     Coster::new(pricing, mode).apply(&mut outcome.events);

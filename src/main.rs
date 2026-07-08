@@ -41,6 +41,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     let filter = EventFilter {
         project: cli.global.project.as_deref(),
         model: cli.global.model.as_deref(),
+        provider: None,
     };
 
     let mut outcome = scan::scan(&roots, filter);

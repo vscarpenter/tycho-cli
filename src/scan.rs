@@ -1,13 +1,15 @@
 //! The end-to-end scan pipeline: discover → parse → dedupe.
 //!
-//! This is the seam the CLI calls. Filters that can skip whole files
-//! (project) apply before parsing; per-event filters (model) apply before
+//! This is the seam the CLI calls. `--project` is path-authoritative for
+//! Claude roots, so it skips whole files there before parsing; Codex and
+//! External transcripts carry their project in metadata instead, so for
+//! those it applies per event, alongside `--model` and `--provider`, before
 //! deduplication. Files that cannot be opened are counted, never fatal.
 
 use std::path::PathBuf;
 
 use crate::dedupe::Deduper;
-use crate::discover::{self, SearchRoot, TranscriptFile};
+use crate::discover::{self, Provider, SearchRoot, TranscriptFile};
 use crate::record::{self, ParseStats, UsageEvent};
 
 /// Substring filters borrowed from the CLI arguments for the duration of
@@ -18,6 +20,8 @@ pub struct EventFilter<'a> {
     pub project: Option<&'a str>,
     /// Keep only events whose model id contains this.
     pub model: Option<&'a str>,
+    /// Keep only events produced by this provider.
+    pub provider: Option<Provider>,
 }
 
 /// Everything `doctor` and humans need to know about a scan.
@@ -48,18 +52,29 @@ pub struct ScanOutcome {
 ///
 /// Files parse in parallel (rayon); the merge stays sequential and in
 /// discovery order, so results are deterministic regardless of thread
-/// scheduling. Project filtering happens after parsing so transcript formats
-/// that carry the real project in metadata (Codex `cwd`) work alongside
-/// Claude's path-encoded project directories.
+/// scheduling. `filter.project` prefilters whole files here, but only for
+/// Claude roots: their encoded project directory is path-authoritative, so a
+/// non-matching Claude file need not be opened at all. Codex and External
+/// files always parse — their project comes from metadata inside the file —
+/// and get the same `project` substring check per event in [`scan_files`].
 pub fn scan(roots: &[SearchRoot], filter: EventFilter<'_>) -> ScanOutcome {
-    let files = discover::discover(roots);
+    let files: Vec<_> = discover::discover(roots)
+        .into_iter()
+        .filter(|file| {
+            file.provider != Provider::Claude
+                || filter
+                    .project
+                    .is_none_or(|project| file.project.contains(project))
+        })
+        .collect();
     scan_files(files, filter)
 }
 
-/// Parse and deduplicate an already-discovered file list. The `project`
-/// and `model` filters are both applied per event. This is the seam
-/// `tycho live` uses so it can read file mtimes from the same discovery pass
-/// (see `crate::tui::compute_snapshot`).
+/// Parse and deduplicate an already-discovered file list. The `project`,
+/// `model`, and `provider` filters are all applied per event here (no
+/// whole-file skipping — that only happens in [`scan`], and only for Claude
+/// roots). This is the seam `tycho live` uses so it can read file mtimes
+/// from the same discovery pass (see `crate::tui::compute_snapshot`).
 pub fn scan_files(files: Vec<TranscriptFile>, filter: EventFilter<'_>) -> ScanOutcome {
     use rayon::prelude::*;
 
@@ -83,11 +98,13 @@ pub fn scan_files(files: Vec<TranscriptFile>, filter: EventFilter<'_>) -> ScanOu
         summary.bytes_scanned += bytes;
         summary.stats.merge(&file_scan.stats);
         for mut event in file_scan.events {
-            if event.project.is_empty() {
-                event.project = file.project.clone();
-            }
-            if let Some(project) = filter.project
-                && !event.project.contains(project)
+            let project: &str = if event.project.is_empty() {
+                &file.project
+            } else {
+                &event.project
+            };
+            if let Some(wanted) = filter.project
+                && !project.contains(wanted)
             {
                 continue;
             }
@@ -95,6 +112,14 @@ pub fn scan_files(files: Vec<TranscriptFile>, filter: EventFilter<'_>) -> ScanOu
                 && !event.model.contains(model)
             {
                 continue;
+            }
+            if let Some(provider) = filter.provider
+                && event.provider != provider
+            {
+                continue;
+            }
+            if event.project.is_empty() {
+                event.project = file.project.clone();
             }
             deduper.insert(event);
         }
@@ -132,8 +157,12 @@ pub struct DoctorReport {
 }
 
 /// Assemble the doctor report from a finished scan. Filters that were
-/// applied to the scan apply to this report too. `unpriced_models` comes
-/// from the cost engine so this module stays pricing-agnostic.
+/// applied to the scan apply to this report too: under `--project`, the
+/// summary counters (`files_scanned` and friends) cover Claude files whose
+/// path-encoded project matched, plus *all* Codex and External files, since
+/// those providers are only filtered per event, after parsing.
+/// `unpriced_models` comes from the cost engine so this module stays
+/// pricing-agnostic.
 pub fn doctor(
     roots: &[SearchRoot],
     outcome: &ScanOutcome,
@@ -183,6 +212,32 @@ mod tests {
             path: dir.path().to_path_buf(),
             provider: discover::Provider::Claude,
         }
+    }
+
+    /// Wrap a fixture directory as a Codex-layout search root.
+    fn codex_root(dir: &tempfile::TempDir) -> SearchRoot {
+        SearchRoot {
+            path: dir.path().to_path_buf(),
+            provider: discover::Provider::Codex,
+        }
+    }
+
+    /// One Codex rollout file whose `cwd` is `alpha`, deliberately never
+    /// matching the Claude fixtures' `gsd`/`other` projects, so tests can
+    /// tell "always parsed" apart from "coincidentally matched".
+    fn codex_fixture_root() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("rollout-codex-sess.jsonl"),
+            [
+                r#"{"type":"session_meta","timestamp":"2026-07-08T01:40:26.000Z","payload":{"id":"codex-sess","session_id":"codex-sess","cwd":"/Users/v/Projects/alpha"}}"#,
+                r#"{"type":"turn_context","timestamp":"2026-07-08T01:40:27.000Z","payload":{"model":"gpt-5.5","cwd":"/Users/v/Projects/alpha"}}"#,
+                r#"{"type":"event_msg","timestamp":"2026-07-08T01:40:35.000Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":10}}}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        dir
     }
 
     fn line(msg: &str, req: &str, model: &str, out: u64) -> String {
@@ -270,17 +325,33 @@ mod tests {
     }
 
     #[test]
-    fn project_filter_matches_encoded_directory_substring() {
-        let root = fixture_root();
+    fn project_filter_skips_nonmatching_claude_files_but_parses_codex() {
+        let claude = fixture_root();
+        let codex = codex_fixture_root();
         let filter = EventFilter {
             project: Some("gsd"),
             ..Default::default()
         };
-        let outcome = scan(&[claude_root(&root)], filter);
+        let outcome = scan(&[claude_root(&claude), codex_root(&codex)], filter);
+        // Claude's "other" project is skipped before parsing (path-authoritative);
+        // Codex's file is always parsed even though its cwd-derived project
+        // ("alpha") does not match "gsd" either.
+        assert_eq!(outcome.summary.files_scanned, 3);
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].model, "claude-opus-4-8");
-        // Filtering is event-level so metadata-defined projects can match too.
-        assert_eq!(outcome.summary.files_scanned, 3);
+    }
+
+    #[test]
+    fn provider_filter_selects_events() {
+        let claude = fixture_root();
+        let codex = codex_fixture_root();
+        let filter = EventFilter {
+            provider: Some(discover::Provider::Codex),
+            ..Default::default()
+        };
+        let outcome = scan(&[claude_root(&claude), codex_root(&codex)], filter);
+        assert_eq!(outcome.events.len(), 1);
+        assert_eq!(outcome.events[0].provider, discover::Provider::Codex);
     }
 
     #[test]
