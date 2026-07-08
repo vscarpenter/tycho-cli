@@ -1,4 +1,8 @@
-# tycho
+<p align="center">
+  <img src="assets/tycho_banner_1280x640.png" alt="tycho — usage analytics for local AI tool transcripts: tokens, cost, cache economics, and trends" width="760">
+</p>
+
+# <img src="assets/tycho_icon_512.png" alt="" height="28"> tycho
 
 Fast, privacy-first usage analytics for local AI tool transcripts and response
 logs: tokens, cost, cache economics, and trends by day, project, session, and
