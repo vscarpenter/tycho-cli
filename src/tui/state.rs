@@ -297,6 +297,7 @@ mod tests {
         let files = vec![crate::discover::TranscriptFile {
             project: "-Users-v-Projects-gsd".into(),
             path,
+            provider: crate::discover::Provider::Claude,
         }];
         let mtimes = collect_mtimes(&files);
         assert_eq!(mtimes.len(), 1);

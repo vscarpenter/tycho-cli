@@ -7,6 +7,23 @@
 
 use std::path::{Path, PathBuf};
 
+/// Which product wrote the files under a search root. Assigned per root at
+/// discovery time; `External` (from `--dir`) is the only provider whose
+/// files are format-sniffed line by line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Provider {
+    Claude,
+    Codex,
+    External,
+}
+
+/// A search root plus the provider that owns its layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchRoot {
+    pub path: PathBuf,
+    pub provider: Provider,
+}
+
 /// A transcript file found under a search root, labeled with the encoded
 /// project directory it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -16,6 +33,8 @@ pub struct TranscriptFile {
     pub project: String,
     /// Path to the `.jsonl` file.
     pub path: PathBuf,
+    /// The provider that owns this file's search root.
+    pub provider: Provider,
 }
 
 /// Compute the default search roots from the home directory plus the Claude
@@ -33,8 +52,8 @@ pub fn default_roots(
     home: &Path,
     claude_config_dir: Option<&str>,
     codex_home: Option<&str>,
-) -> Vec<PathBuf> {
-    let mut roots = match claude_config_dir {
+) -> Vec<SearchRoot> {
+    let claude_paths: Vec<PathBuf> = match claude_config_dir {
         Some(dirs) => dirs
             .split(',')
             .map(str::trim)
@@ -43,13 +62,26 @@ pub fn default_roots(
             .collect(),
         None => vec![home.join(".claude/projects")],
     };
-    roots.push(home.join("Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"));
-    roots.push(
-        codex_home
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".codex"))
-            .join("sessions"),
-    );
+    let mut roots: Vec<SearchRoot> = claude_paths
+        .into_iter()
+        .map(|path| SearchRoot {
+            path,
+            provider: Provider::Claude,
+        })
+        .collect();
+    roots.push(SearchRoot {
+        path: home.join("Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"),
+        provider: Provider::Claude,
+    });
+    let codex_base = codex_home
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".codex"));
+    roots.push(SearchRoot {
+        path: codex_base.join("sessions"),
+        provider: Provider::Codex,
+    });
     roots
 }
 
@@ -58,18 +90,19 @@ pub fn default_roots(
 /// Roots that do not exist are skipped silently (the Xcode location is
 /// usually absent). Results are sorted by project, then path, so output is
 /// deterministic regardless of filesystem iteration order.
-pub fn discover(roots: &[PathBuf]) -> Vec<TranscriptFile> {
+pub fn discover(roots: &[SearchRoot]) -> Vec<TranscriptFile> {
     let mut files: Vec<TranscriptFile> = roots
         .iter()
         .flat_map(|root| {
-            walkdir::WalkDir::new(root)
+            walkdir::WalkDir::new(&root.path)
                 .into_iter()
                 .filter_map(Result::ok)
                 .filter(|entry| entry.file_type().is_file())
                 .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "jsonl"))
                 .map(|entry| TranscriptFile {
-                    project: project_name(root, entry.path()),
+                    project: project_name(&root.path, root.provider, entry.path()),
                     path: entry.into_path(),
+                    provider: root.provider,
                 })
         })
         .collect();
@@ -77,8 +110,14 @@ pub fn discover(roots: &[PathBuf]) -> Vec<TranscriptFile> {
     files
 }
 
-/// The first directory component below the root is the encoded project name.
-fn project_name(root: &Path, file: &Path) -> String {
+/// The first directory component below the root is the encoded project
+/// name for Claude-layout roots. Codex roots are date-sharded
+/// (`sessions/<yyyy>/<mm>/<dd>/`), so their files get the `(codex)`
+/// placeholder; the real project comes from record metadata during the scan.
+fn project_name(root: &Path, provider: Provider, file: &Path) -> String {
+    if provider == Provider::Codex {
+        return "(codex)".to_owned();
+    }
     file.strip_prefix(root)
         .ok()
         .and_then(|rel| rel.parent()?.components().next())
@@ -120,7 +159,10 @@ mod tests {
     #[test]
     fn finds_jsonl_at_every_observed_nesting_depth() {
         let dir = fixture_tree();
-        let found = discover(&[dir.path().to_path_buf()]);
+        let found = discover(&[SearchRoot {
+            path: dir.path().to_path_buf(),
+            provider: Provider::Claude,
+        }]);
         let names: Vec<_> = found
             .iter()
             .map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned())
@@ -133,7 +175,10 @@ mod tests {
     #[test]
     fn includes_journal_jsonl_and_excludes_non_jsonl() {
         let dir = fixture_tree();
-        let found = discover(&[dir.path().to_path_buf()]);
+        let found = discover(&[SearchRoot {
+            path: dir.path().to_path_buf(),
+            provider: Provider::Claude,
+        }]);
         let names: Vec<_> = found
             .iter()
             .map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned())
@@ -146,14 +191,20 @@ mod tests {
     #[test]
     fn labels_every_file_with_the_project_directory_name() {
         let dir = fixture_tree();
-        let found = discover(&[dir.path().to_path_buf()]);
+        let found = discover(&[SearchRoot {
+            path: dir.path().to_path_buf(),
+            provider: Provider::Claude,
+        }]);
         assert!(!found.is_empty());
         assert!(found.iter().all(|f| f.project == "-Users-v-Projects-gsd"));
     }
 
     #[test]
     fn nonexistent_root_is_skipped_silently() {
-        let found = discover(&[PathBuf::from("/definitely/not/a/real/root")]);
+        let found = discover(&[SearchRoot {
+            path: PathBuf::from("/definitely/not/a/real/root"),
+            provider: Provider::Claude,
+        }]);
         assert!(found.is_empty());
     }
 
@@ -165,23 +216,40 @@ mod tests {
         fs::create_dir_all(&proj_b).unwrap();
         fs::write(proj_b.join("sess-9.jsonl"), "{}\n").unwrap();
 
-        let forward = discover(&[a.path().to_path_buf(), b.path().to_path_buf()]);
-        let reverse = discover(&[b.path().to_path_buf(), a.path().to_path_buf()]);
+        let root_a = SearchRoot {
+            path: a.path().to_path_buf(),
+            provider: Provider::Claude,
+        };
+        let root_b = SearchRoot {
+            path: b.path().to_path_buf(),
+            provider: Provider::Claude,
+        };
+        let forward = discover(&[root_a.clone(), root_b.clone()]);
+        let reverse = discover(&[root_b, root_a]);
         assert_eq!(forward.len(), 5);
         assert_eq!(forward, reverse);
     }
 
     #[test]
-    fn default_roots_without_config_dir_uses_home_claude_and_xcode() {
+    fn default_roots_tag_providers() {
         let roots = default_roots(Path::new("/Users/v"), None, None);
         assert_eq!(
             roots,
             vec![
-                PathBuf::from("/Users/v/.claude/projects"),
-                PathBuf::from(
-                    "/Users/v/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"
-                ),
-                PathBuf::from("/Users/v/.codex/sessions"),
+                SearchRoot {
+                    path: PathBuf::from("/Users/v/.claude/projects"),
+                    provider: Provider::Claude
+                },
+                SearchRoot {
+                    path: PathBuf::from(
+                        "/Users/v/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"
+                    ),
+                    provider: Provider::Claude
+                },
+                SearchRoot {
+                    path: PathBuf::from("/Users/v/.codex/sessions"),
+                    provider: Provider::Codex
+                },
             ]
         );
     }
@@ -196,13 +264,53 @@ mod tests {
         assert_eq!(
             roots,
             vec![
-                PathBuf::from("/cfg/a/projects"),
-                PathBuf::from("/cfg/b/projects"),
-                PathBuf::from(
-                    "/Users/v/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"
-                ),
-                PathBuf::from("/codex/sessions"),
+                SearchRoot {
+                    path: PathBuf::from("/cfg/a/projects"),
+                    provider: Provider::Claude
+                },
+                SearchRoot {
+                    path: PathBuf::from("/cfg/b/projects"),
+                    provider: Provider::Claude
+                },
+                SearchRoot {
+                    path: PathBuf::from(
+                        "/Users/v/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"
+                    ),
+                    provider: Provider::Claude
+                },
+                SearchRoot {
+                    path: PathBuf::from("/codex/sessions"),
+                    provider: Provider::Codex
+                },
             ]
         );
+    }
+
+    #[test]
+    fn empty_codex_home_falls_back_to_home_codex() {
+        // A set-but-empty CODEX_HOME must not yield a relative "sessions" root.
+        for value in ["", "   "] {
+            let roots = default_roots(Path::new("/Users/v"), None, Some(value));
+            assert!(
+                roots
+                    .iter()
+                    .any(|r| r.path == Path::new("/Users/v/.codex/sessions"))
+            );
+        }
+    }
+
+    #[test]
+    fn codex_root_files_get_placeholder_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let day = dir.path().join("2026/07/08");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::write(day.join("rollout-x.jsonl"), "{}\n").unwrap();
+        let found = discover(&[SearchRoot {
+            path: dir.path().to_path_buf(),
+            provider: Provider::Codex,
+        }]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].project, "(codex)");
+        assert_eq!(found[0].provider, Provider::Codex);
     }
 }

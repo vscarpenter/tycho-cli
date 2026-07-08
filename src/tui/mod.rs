@@ -11,7 +11,6 @@ pub mod state;
 pub mod view;
 
 use std::io;
-use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::Duration;
@@ -21,7 +20,7 @@ use chrono_tz::Tz;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 
 use crate::cost::{CostMode, Coster};
-use crate::discover::{self, TranscriptFile};
+use crate::discover::{self, SearchRoot, TranscriptFile};
 use crate::pricing::PricingTable;
 use crate::scan::{self, EventFilter};
 use app::{App, Control, handle_key};
@@ -37,7 +36,7 @@ const POLL: Duration = Duration::from_millis(100);
 /// the parsed events come from the same file list. `project` filters whole
 /// files up front; `model` filters per event during the scan.
 pub fn compute_snapshot(
-    roots: &[PathBuf],
+    roots: &[SearchRoot],
     project: Option<&str>,
     model: Option<&str>,
     mode: CostMode,
@@ -65,7 +64,7 @@ pub fn compute_snapshot(
 /// (raw mode, alternate screen, panic-restore hook) via `ratatui::init`, and
 /// always restores it via `ratatui::restore`, even on error.
 pub fn run(
-    roots: Vec<PathBuf>,
+    roots: Vec<SearchRoot>,
     project: Option<String>,
     model: Option<String>,
     mode: CostMode,
@@ -84,7 +83,7 @@ pub fn run(
 #[allow(clippy::too_many_arguments)]
 fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
-    roots: Vec<PathBuf>,
+    roots: Vec<SearchRoot>,
     project: Option<String>,
     model: Option<String>,
     mode: CostMode,

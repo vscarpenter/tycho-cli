@@ -3,7 +3,6 @@
 //! exit codes (0 success, 1 runtime error, 2 usage error).
 
 use std::io::IsTerminal;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Context;
@@ -13,6 +12,7 @@ use clap::{CommandFactory, Parser};
 
 use tycho::cli::{self, Cli, Command};
 use tycho::cost::{self, Coster};
+use tycho::discover::SearchRoot;
 use tycho::pricing::{self, PricingTable};
 use tycho::report::{csv, json, table};
 use tycho::scan::{self, EventFilter, ScanOutcome};
@@ -61,7 +61,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 /// `tycho live`: an interactive dashboard on a TTY, or one JSON snapshot when
 /// `--json` is set or stdout is not a terminal (so it stays scriptable and
 /// never corrupts a redirected stream).
-fn run_live(cli: &Cli, tz: Tz, roots: &[PathBuf], pricing: PricingTable) -> anyhow::Result<()> {
+fn run_live(cli: &Cli, tz: Tz, roots: &[SearchRoot], pricing: PricingTable) -> anyhow::Result<()> {
     reject_csv(cli.global.csv);
     let g = &cli.global;
     if g.json || !std::io::stdout().is_terminal() {
@@ -89,9 +89,18 @@ fn run_live(cli: &Cli, tz: Tz, roots: &[PathBuf], pricing: PricingTable) -> anyh
     }
 }
 
-fn resolve_roots(cli: &Cli) -> anyhow::Result<Vec<PathBuf>> {
+fn resolve_roots(cli: &Cli) -> anyhow::Result<Vec<SearchRoot>> {
     if !cli.global.dirs.is_empty() {
-        return Ok(cli.global.dirs.clone());
+        return Ok(cli
+            .global
+            .dirs
+            .iter()
+            .cloned()
+            .map(|path| discover::SearchRoot {
+                path,
+                provider: discover::Provider::External,
+            })
+            .collect());
     }
     let home = std::env::home_dir().context("cannot determine the home directory")?;
     let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
@@ -127,7 +136,7 @@ fn resolve_pricing(cli: &Cli) -> anyhow::Result<PricingTable> {
 fn render(
     cli: &Cli,
     tz: Tz,
-    roots: &[PathBuf],
+    roots: &[SearchRoot],
     outcome: ScanOutcome,
     unpriced: Vec<String>,
     pricing: &PricingTable,

@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 
 use crate::dedupe::Deduper;
-use crate::discover::{self, TranscriptFile};
+use crate::discover::{self, SearchRoot, TranscriptFile};
 use crate::record::{self, ParseStats, UsageEvent};
 
 /// Substring filters borrowed from the CLI arguments for the duration of
@@ -51,7 +51,7 @@ pub struct ScanOutcome {
 /// scheduling. Project filtering happens after parsing so transcript formats
 /// that carry the real project in metadata (Codex `cwd`) work alongside
 /// Claude's path-encoded project directories.
-pub fn scan(roots: &[PathBuf], filter: EventFilter<'_>) -> ScanOutcome {
+pub fn scan(roots: &[SearchRoot], filter: EventFilter<'_>) -> ScanOutcome {
     let files = discover::discover(roots);
     scan_files(files, filter)
 }
@@ -135,7 +135,7 @@ pub struct DoctorReport {
 /// applied to the scan apply to this report too. `unpriced_models` comes
 /// from the cost engine so this module stays pricing-agnostic.
 pub fn doctor(
-    roots: &[PathBuf],
+    roots: &[SearchRoot],
     outcome: &ScanOutcome,
     unpriced_models: Vec<String>,
 ) -> DoctorReport {
@@ -158,9 +158,9 @@ pub fn doctor(
     DoctorReport {
         roots: roots
             .iter()
-            .map(|path| RootStatus {
-                path: path.clone(),
-                exists: path.is_dir(),
+            .map(|root| RootStatus {
+                path: root.path.clone(),
+                exists: root.path.is_dir(),
             })
             .collect(),
         summary: outcome.summary,
@@ -176,6 +176,14 @@ mod tests {
     use std::fs;
 
     const EVENT_TEMPLATE: &str = r#"{"type":"assistant","uuid":"UUID","timestamp":"TS","sessionId":"sess-1","requestId":"REQ","message":{"id":"MSG","model":"MODEL","usage":{"input_tokens":1,"output_tokens":OUT,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#;
+
+    /// Wrap a fixture directory as a Claude-layout search root.
+    fn claude_root(dir: &tempfile::TempDir) -> SearchRoot {
+        SearchRoot {
+            path: dir.path().to_path_buf(),
+            provider: discover::Provider::Claude,
+        }
+    }
 
     fn line(msg: &str, req: &str, model: &str, out: u64) -> String {
         EVENT_TEMPLATE
@@ -221,7 +229,7 @@ mod tests {
     #[test]
     fn scan_files_parses_a_prediscovered_list() {
         let root = fixture_root();
-        let files = crate::discover::discover(&[root.path().to_path_buf()]);
+        let files = crate::discover::discover(&[claude_root(&root)]);
         let outcome = scan_files(files, EventFilter::default());
         assert_eq!(outcome.events.len(), 2);
         assert_eq!(outcome.summary.files_scanned, 3);
@@ -231,7 +239,7 @@ mod tests {
     #[test]
     fn dedupes_across_files_and_keeps_max_output() {
         let root = fixture_root();
-        let outcome = scan(&[root.path().to_path_buf()], EventFilter::default());
+        let outcome = scan(&[claude_root(&root)], EventFilter::default());
         assert_eq!(outcome.events.len(), 2);
         assert_eq!(outcome.summary.duplicates_collapsed, 2);
         let survivor = outcome
@@ -245,7 +253,7 @@ mod tests {
     #[test]
     fn counts_files_scanned() {
         let root = fixture_root();
-        let outcome = scan(&[root.path().to_path_buf()], EventFilter::default());
+        let outcome = scan(&[claude_root(&root)], EventFilter::default());
         assert_eq!(outcome.summary.files_scanned, 3);
         assert_eq!(outcome.summary.files_unreadable, 0);
         assert_eq!(outcome.summary.stats.events, 4);
@@ -255,7 +263,7 @@ mod tests {
     #[test]
     fn events_carry_the_project_they_were_found_under() {
         let root = fixture_root();
-        let mut outcome = scan(&[root.path().to_path_buf()], EventFilter::default());
+        let mut outcome = scan(&[claude_root(&root)], EventFilter::default());
         outcome.events.sort_by(|a, b| a.project.cmp(&b.project));
         assert_eq!(outcome.events[0].project, "-Users-v-Projects-gsd");
         assert_eq!(outcome.events[1].project, "-Users-v-Projects-other");
@@ -268,7 +276,7 @@ mod tests {
             project: Some("gsd"),
             ..Default::default()
         };
-        let outcome = scan(&[root.path().to_path_buf()], filter);
+        let outcome = scan(&[claude_root(&root)], filter);
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].model, "claude-opus-4-8");
         // Filtering is event-level so metadata-defined projects can match too.
@@ -282,7 +290,7 @@ mod tests {
             model: Some("sonnet"),
             ..Default::default()
         };
-        let outcome = scan(&[root.path().to_path_buf()], filter);
+        let outcome = scan(&[claude_root(&root)], filter);
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].usage.output, 42);
     }
@@ -291,7 +299,13 @@ mod tests {
     fn doctor_reports_roots_span_and_models() {
         let root = fixture_root();
         let missing = PathBuf::from("/definitely/not/here");
-        let roots = vec![root.path().to_path_buf(), missing.clone()];
+        let roots = vec![
+            claude_root(&root),
+            SearchRoot {
+                path: missing.clone(),
+                provider: discover::Provider::Claude,
+            },
+        ];
         let outcome = scan(&roots, EventFilter::default());
         let report = doctor(&roots, &outcome, vec!["mystery-model".into()]);
 
@@ -320,7 +334,7 @@ mod tests {
         let blocked = root.path().join("-Users-v-Projects-gsd/sess-1.jsonl");
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
 
-        let outcome = scan(&[root.path().to_path_buf()], EventFilter::default());
+        let outcome = scan(&[claude_root(&root)], EventFilter::default());
         assert_eq!(outcome.summary.files_unreadable, 1);
         assert_eq!(outcome.events.len(), 2);
 
