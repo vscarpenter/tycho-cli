@@ -48,23 +48,18 @@ pub struct ScanOutcome {
 ///
 /// Files parse in parallel (rayon); the merge stays sequential and in
 /// discovery order, so results are deterministic regardless of thread
-/// scheduling.
+/// scheduling. Project filtering happens after parsing so transcript formats
+/// that carry the real project in metadata (Codex `cwd`) work alongside
+/// Claude's path-encoded project directories.
 pub fn scan(roots: &[PathBuf], filter: EventFilter<'_>) -> ScanOutcome {
-    let files: Vec<_> = discover::discover(roots)
-        .into_iter()
-        .filter(|file| {
-            filter
-                .project
-                .is_none_or(|project| file.project.contains(project))
-        })
-        .collect();
+    let files = discover::discover(roots);
     scan_files(files, filter)
 }
 
 /// Parse and deduplicate an already-discovered file list. The `project`
-/// filter is assumed already applied to `files`; only the per-event `model`
-/// filter is honored here. This is the seam `tycho live` uses so it can read
-/// file mtimes from the same discovery pass (see `crate::tui::compute_snapshot`).
+/// and `model` filters are both applied per event. This is the seam
+/// `tycho live` uses so it can read file mtimes from the same discovery pass
+/// (see `crate::tui::compute_snapshot`).
 pub fn scan_files(files: Vec<TranscriptFile>, filter: EventFilter<'_>) -> ScanOutcome {
     use rayon::prelude::*;
 
@@ -88,12 +83,19 @@ pub fn scan_files(files: Vec<TranscriptFile>, filter: EventFilter<'_>) -> ScanOu
         summary.bytes_scanned += bytes;
         summary.stats.merge(&file_scan.stats);
         for mut event in file_scan.events {
+            if event.project.is_empty() {
+                event.project = file.project.clone();
+            }
+            if let Some(project) = filter.project
+                && !event.project.contains(project)
+            {
+                continue;
+            }
             if let Some(model) = filter.model
                 && !event.model.contains(model)
             {
                 continue;
             }
-            event.project = file.project.clone();
             deduper.insert(event);
         }
     }
@@ -269,8 +271,8 @@ mod tests {
         let outcome = scan(&[root.path().to_path_buf()], filter);
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].model, "claude-opus-4-8");
-        // Whole non-matching files are never parsed.
-        assert_eq!(outcome.summary.files_scanned, 2);
+        // Filtering is event-level so metadata-defined projects can match too.
+        assert_eq!(outcome.summary.files_scanned, 3);
     }
 
     #[test]

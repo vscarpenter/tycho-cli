@@ -18,15 +18,22 @@ pub struct TranscriptFile {
     pub path: PathBuf,
 }
 
-/// Compute the default search roots from the home directory and the
-/// `CLAUDE_CONFIG_DIR` environment value (passed in, not read here, so the
+/// Compute the default search roots from the home directory plus the Claude
+/// and Codex config environment values (passed in, not read here, so the
 /// function stays pure and testable).
 ///
 /// When `claude_config_dir` is set it is a comma-separated list of config
 /// roots that *replaces* `~/.claude`; each entry contributes
 /// `<entry>/projects`. The macOS Xcode bonus location is always appended —
 /// it is independent of the config dir and simply absent on other machines.
-pub fn default_roots(home: &Path, claude_config_dir: Option<&str>) -> Vec<PathBuf> {
+///
+/// When `codex_home` is set it contributes `<CODEX_HOME>/sessions`; otherwise
+/// `~/.codex/sessions` is used.
+pub fn default_roots(
+    home: &Path,
+    claude_config_dir: Option<&str>,
+    codex_home: Option<&str>,
+) -> Vec<PathBuf> {
     let mut roots = match claude_config_dir {
         Some(dirs) => dirs
             .split(',')
@@ -37,6 +44,12 @@ pub fn default_roots(home: &Path, claude_config_dir: Option<&str>) -> Vec<PathBu
         None => vec![home.join(".claude/projects")],
     };
     roots.push(home.join("Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"));
+    roots.push(
+        codex_home
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".codex"))
+            .join("sessions"),
+    );
     roots
 }
 
@@ -160,7 +173,7 @@ mod tests {
 
     #[test]
     fn default_roots_without_config_dir_uses_home_claude_and_xcode() {
-        let roots = default_roots(Path::new("/Users/v"), None);
+        let roots = default_roots(Path::new("/Users/v"), None, None);
         assert_eq!(
             roots,
             vec![
@@ -168,13 +181,18 @@ mod tests {
                 PathBuf::from(
                     "/Users/v/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"
                 ),
+                PathBuf::from("/Users/v/.codex/sessions"),
             ]
         );
     }
 
     #[test]
     fn default_roots_with_config_dir_replaces_home_claude() {
-        let roots = default_roots(Path::new("/Users/v"), Some("/cfg/a, /cfg/b,"));
+        let roots = default_roots(
+            Path::new("/Users/v"),
+            Some("/cfg/a, /cfg/b,"),
+            Some("/codex"),
+        );
         assert_eq!(
             roots,
             vec![
@@ -183,6 +201,7 @@ mod tests {
                 PathBuf::from(
                     "/Users/v/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"
                 ),
+                PathBuf::from("/codex/sessions"),
             ]
         );
     }

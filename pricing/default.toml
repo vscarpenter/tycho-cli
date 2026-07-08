@@ -13,6 +13,20 @@
 # Model lookup is longest-prefix: "claude-opus-4-8-20270101" matches
 # "claude-opus-4-8"; a hypothetical "claude-opus-4" entry would only catch
 # ids no longer entry matches.
+#
+# OpenAI rates were verified 2026-07-08 against
+# https://developers.openai.com/api/docs/pricing. They use Standard API rates.
+# For models with separate short/long-context rows, these defaults use the
+# short-context row; override them if your logs should be billed at long-context,
+# Batch, Flex, Priority, data-residency, or subscription-plan rates. OpenAI
+# prompt caching has no separate write charge, so cache_write_* matches input
+# and cached input is represented as cache_read.
+#
+# Some Codex session logs contain historical/private model labels that do not
+# appear on the current public API rate card. Those are explicitly zero-rated
+# below to avoid noisy warnings; override them if you have account-specific
+# credit or API pricing for those labels. Local Ollama-style model ids are also
+# zero-rated by prefix.
 
 [models."claude-fable-5"]
 input = 10.0
@@ -62,3 +76,108 @@ output = 5.0
 cache_write_5m = 1.25
 cache_write_1h = 2.0
 cache_read = 0.1
+
+[models."gpt-5.5-pro"]
+input = 30.0
+output = 180.0
+cache_write_5m = 30.0
+cache_write_1h = 30.0
+cache_read = 30.0
+
+[models."gpt-5.5"]
+input = 5.0
+output = 30.0
+cache_write_5m = 5.0
+cache_write_1h = 5.0
+cache_read = 0.5
+
+[models."gpt-5.4-pro"]
+input = 30.0
+output = 180.0
+cache_write_5m = 30.0
+cache_write_1h = 30.0
+cache_read = 30.0
+
+[models."gpt-5.4-mini"]
+input = 0.75
+output = 4.5
+cache_write_5m = 0.75
+cache_write_1h = 0.75
+cache_read = 0.075
+
+[models."gpt-5.4-nano"]
+input = 0.20
+output = 1.25
+cache_write_5m = 0.20
+cache_write_1h = 0.20
+cache_read = 0.02
+
+[models."gpt-5.4"]
+input = 2.5
+output = 15.0
+cache_write_5m = 2.5
+cache_write_1h = 2.5
+cache_read = 0.25
+
+[models."gpt-5.3-codex"]
+input = 1.75
+output = 14.0
+cache_write_5m = 1.75
+cache_write_1h = 1.75
+cache_read = 0.175
+
+[models."gpt-5.2-codex"]
+input = 0.0
+output = 0.0
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.0
+
+[models."gpt-5.1-codex-max"]
+input = 0.0
+output = 0.0
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.0
+
+[models."gpt-5.1-codex"]
+input = 0.0
+output = 0.0
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.0
+
+[models."gpt-5-codex"]
+input = 0.0
+output = 0.0
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.0
+
+[models."chat-latest"]
+input = 5.0
+output = 30.0
+cache_write_5m = 5.0
+cache_write_1h = 5.0
+cache_read = 0.5
+
+[models."codex-auto-review"]
+input = 0.0
+output = 0.0
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.0
+
+[models."gemma4:"]
+input = 0.0
+output = 0.0
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.0
+
+[models."qwen3.6:"]
+input = 0.0
+output = 0.0
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.0

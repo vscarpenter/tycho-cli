@@ -14,7 +14,7 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = crate::BIN_NAME,
     version,
-    about = "Usage analytics for Claude Code's local transcripts"
+    about = "Usage analytics for local AI tool transcripts"
 )]
 pub struct Cli {
     /// The requested report; defaults to `daily`.

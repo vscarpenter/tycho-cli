@@ -111,6 +111,18 @@ mod tests {
             "claude-sonnet-5",
             "claude-sonnet-4-6",
             "claude-haiku-4-5-20251001", // dated id resolves via prefix
+            "gpt-5.5",
+            "gpt-5.5-pro",
+            "gpt-5.4-mini",
+            "gpt-5.3-codex",
+            "gpt-5.2-codex",
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5-codex",
+            "chat-latest",
+            "codex-auto-review",
+            "gemma4:12b",
+            "qwen3.6:27b",
         ] {
             assert!(table.lookup(model).is_some(), "missing rates for {model}");
         }
@@ -120,6 +132,17 @@ mod tests {
         assert_eq!(opus.cache_write_5m, dec("6.25"));
         assert_eq!(opus.cache_write_1h, dec("10"));
         assert_eq!(opus.cache_read, dec("0.5"));
+        let gpt = table.lookup("gpt-5.5").unwrap();
+        assert_eq!(gpt.input, dec("5"));
+        assert_eq!(gpt.output, dec("30"));
+        assert_eq!(gpt.cache_read, dec("0.5"));
+        let pro = table.lookup("gpt-5.5-pro").unwrap();
+        assert_eq!(pro.input, dec("30"));
+        let legacy = table.lookup("gpt-5.1-codex-max").unwrap();
+        assert_eq!(legacy.input, dec("0"));
+        assert_eq!(legacy.output, dec("0"));
+        let local = table.lookup("qwen3.6:27b").unwrap();
+        assert_eq!(local.input, dec("0"));
     }
 
     #[test]

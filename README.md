@@ -1,8 +1,9 @@
 # tycho
 
-Fast, privacy-first usage analytics for [Claude Code](https://code.claude.com)'s
-local JSONL transcripts: tokens, cost, cache economics, and trends by day,
-project, session, and model. Think `iostat` for AI spend.
+Fast, privacy-first usage analytics for local AI tool transcripts and response
+logs: tokens, cost, cache economics, and trends by day, project, session, and
+model. It scans [Claude Code](https://code.claude.com), Codex, and readable
+OpenAI JSONL usage records. Think `iostat` for AI spend.
 
 ![tycho demo: the daily, cache, and blocks reports](demo.gif)
 
@@ -131,18 +132,28 @@ API. Fields are added over time but never renamed or removed.
 
 ## Where the data comes from
 
-Claude Code writes one JSONL transcript per session under
-`~/.claude/projects/` (or the directories in `CLAUDE_CONFIG_DIR`, plus
-Xcode's `CodingAssistant` location when present). `tycho` scans them
-read-only, streams each file, collapses duplicate streaming records, and
+By default, `tycho` scans these read-only roots when they exist:
+
+- Claude Code JSONL transcripts under `~/.claude/projects/`, or the
+  directories in `CLAUDE_CONFIG_DIR`.
+- Xcode's `CodingAssistant` Claude location on macOS.
+- Codex JSONL session logs under `$CODEX_HOME/sessions` or
+  `~/.codex/sessions`.
+
+It also understands standalone OpenAI Responses API and Chat Completions JSONL
+records when you point `--dir` at a readable export/log directory. The current
+macOS ChatGPT desktop conversation cache is opaque `.data` storage rather than
+plain JSONL usage records, so tycho does not scan that cache by default.
+
+`tycho` streams each file, collapses duplicate streaming records, and
 aggregates. A full scan of 500 MB takes well under a second on an Apple
 M-series machine.
 
 ## Pricing
 
-A default pricing table (USD per million tokens, including the 5-minute and
-1-hour cache-write TTL split and cache reads) ships inside the binary; its
-sources and verification date are recorded in
+A default pricing table (USD per million tokens, including Claude cache-write
+TTL splits and cached-input rates for supported OpenAI models) ships inside
+the binary; its sources and verification date are recorded in
 [`pricing/default.toml`](pricing/default.toml). Override any model — or add
 new ones — at `~/.config/tycho/pricing.toml` (or `$XDG_CONFIG_HOME/tycho/`),
 or per run with `--pricing <PATH>`. Models with no pricing entry cost $0,
@@ -151,8 +162,8 @@ warn once on stderr, and are listed by `doctor`.
 Cost modes mirror ccusage: `--mode auto` (default) uses a record's
 pre-computed `costUSD` when present and calculates otherwise; `calculate`
 always prices from tokens; `display` only sums recorded `costUSD` values
-(modern Claude Code versions don't write `costUSD`, so `display` is only
-meaningful for old transcripts).
+(modern Claude Code and Codex records don't write `costUSD`, so `display` is
+only meaningful for old transcripts or custom logs that include recorded cost).
 
 ## Accuracy caveats
 
@@ -162,12 +173,18 @@ meaningful for old transcripts).
   Numbers are estimates for trend analysis, **not an invoice reconciliation
   tool**.
 - Claude Code prunes old transcripts based on its `cleanupPeriodDays`
-  setting, so history has a horizon. `tycho doctor` prints the observed
-  date span.
+  setting, and Codex/ChatGPT local retention can also change, so history has a
+  horizon. `tycho doctor` prints the observed date span.
+- OpenAI subscription-plan usage is not the same as API invoicing. Built-in
+  OpenAI prices estimate API-equivalent token cost; override pricing for long
+  context, Batch, Flex, Priority, data residency, or workspace-specific rates.
+- Historical/private Codex labels and local model ids that have no public API
+  rate are explicitly priced at $0 to avoid noisy warnings. Override them if
+  your account bills those labels differently.
 
 ## Privacy
 
-1. **Read-only.** tycho never writes inside any Claude config directory.
+1. **Read-only.** tycho never writes inside any supported tool config directory.
 2. **No network calls at runtime.** Pricing is embedded or read from local
    config. No telemetry, ever.
 3. **Message content is never parsed, displayed, exported, or persisted.**

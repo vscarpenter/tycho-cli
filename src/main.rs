@@ -94,8 +94,13 @@ fn resolve_roots(cli: &Cli) -> anyhow::Result<Vec<PathBuf>> {
         return Ok(cli.global.dirs.clone());
     }
     let home = std::env::home_dir().context("cannot determine the home directory")?;
-    let config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
-    Ok(discover::default_roots(&home, config_dir.as_deref()))
+    let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
+    let codex_home = std::env::var("CODEX_HOME").ok();
+    Ok(discover::default_roots(
+        &home,
+        claude_config_dir.as_deref(),
+        codex_home.as_deref(),
+    ))
 }
 
 /// Embedded defaults, then the user's config-dir table, then `--pricing`,

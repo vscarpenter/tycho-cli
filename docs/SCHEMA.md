@@ -1,15 +1,18 @@
-# Transcript schema — observed reality
+# Transcript and response schema — observed reality
 
-Everything in this document was verified against real data during Phase 0
-recon (2026-07-04): 1,004 JSONL files, 549 MB, 49,810 assistant records,
-spanning 2026-05-17 → 2026-07-04, written by Claude Code v2.1.156–v2.1.201.
-(Record timestamps reach further back than file mtimes suggest; Phase 1's
-full scan corrected the span first sampled by mtime.)
-Per the project rule, no field is parsed unless it appears here or in the
-referenced docs. If reality and this document ever disagree, reality wins:
-update this file and flag it.
+The Claude Code section was verified against real data during Phase 0 recon
+(2026-07-04): 1,004 JSONL files, 549 MB, 49,810 assistant records, spanning
+2026-05-17 → 2026-07-04, written by Claude Code v2.1.156–v2.1.201. (Record
+timestamps reach further back than file mtimes suggest; Phase 1's full scan
+corrected the span first sampled by mtime.)
 
-## File layout
+The Codex/OpenAI section was added 2026-07-08 from structure-only inspection of
+local Codex JSONL sessions plus OpenAI's public prompt-caching usage examples.
+No message content is parsed. Per the project rule, no field is parsed unless
+it appears here or in the referenced docs. If reality and this document ever
+disagree, reality wins: update this file and flag it.
+
+## Claude Code file layout
 
 Three transcript layouts under each root (default `~/.claude/projects/`):
 
@@ -33,7 +36,26 @@ Observed roots on the recon machine: only `~/.claude/projects`. The Xcode
 location (`~/Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects/`)
 was absent and `CLAUDE_CONFIG_DIR` unset; both remain supported per spec.
 
-## Record types
+## Codex and OpenAI file layout
+
+Codex writes JSONL sessions under:
+
+```
+~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-<timestamp>-<session-id>.jsonl
+$CODEX_HOME/sessions/<yyyy>/<mm>/<dd>/rollout-<timestamp>-<session-id>.jsonl
+```
+
+The first path components are dates, not projects, so project filtering must
+be event-level. Codex carries the real project in `payload.cwd` on
+`session_meta` and `turn_context` records.
+
+The macOS ChatGPT desktop app currently stores conversation data under
+`~/Library/Application Support/com.openai.chat/...` as opaque `.data` files on
+the inspected machine. Those files are not scanned by default. Plain JSONL logs
+or exports containing OpenAI Responses API or Chat Completions response objects
+can be scanned with `--dir`.
+
+## Claude Code record types
 
 15 `type` values observed: `assistant`, `user`, `attachment`, `last-prompt`,
 `mode`, `permission-mode`, `bridge-session`, `ai-title`,
@@ -119,6 +141,99 @@ bare-UUID `message.id`, sometimes missing `requestId`. They contribute
 nothing to totals, must not trigger "unknown model" warnings, and are
 counted separately by `doctor`.
 
+## Codex token-count records
+
+Codex JSONL records are envelope objects with top-level `type`, `timestamp`,
+and `payload`. Usage is not attached to `response_item`; it appears in
+`event_msg` records where `payload.type == "token_count"`.
+
+Context records parsed before token counts:
+
+| Record | Fields used |
+|---|---|
+| `session_meta` | `payload.id`, `payload.session_id`, `payload.cwd` |
+| `turn_context` | `payload.model`, `payload.cwd`, `payload.turn_id` |
+
+Token-count record shape:
+
+```json
+{
+  "type": "event_msg",
+  "timestamp": "2026-07-08T01:40:35.865Z",
+  "payload": {
+    "type": "token_count",
+    "info": {
+      "last_token_usage": {
+        "input_tokens": 27780,
+        "cached_input_tokens": 4992,
+        "output_tokens": 588,
+        "reasoning_output_tokens": 337,
+        "total_tokens": 28368
+      },
+      "total_token_usage": {
+        "input_tokens": 27780,
+        "cached_input_tokens": 4992,
+        "output_tokens": 588,
+        "reasoning_output_tokens": 337,
+        "total_tokens": 28368
+      },
+      "model_context_window": 258400
+    }
+  }
+}
+```
+
+Use `last_token_usage`, not `total_token_usage`; the latter is cumulative for
+the session/turn stream and would double count. OpenAI-style `input_tokens`
+includes cached input, so tycho stores `input_tokens - cached_input_tokens` as
+uncached input and `cached_input_tokens` as cache reads.
+
+## OpenAI API response records
+
+Standalone JSON/JSONL response logs are parsed when they expose metadata in
+OpenAI's public usage shapes:
+
+Responses API:
+
+```json
+{
+  "id": "resp_...",
+  "object": "response",
+  "created_at": 1783476000,
+  "model": "gpt-5.4",
+  "usage": {
+    "input_tokens": 1000,
+    "output_tokens": 50,
+    "total_tokens": 1050,
+    "input_tokens_details": {
+      "cached_tokens": 400
+    }
+  }
+}
+```
+
+Chat Completions:
+
+```json
+{
+  "id": "chatcmpl_...",
+  "object": "chat.completion",
+  "created": 1783479600,
+  "model": "chat-latest",
+  "usage": {
+    "prompt_tokens": 1000,
+    "completion_tokens": 100,
+    "total_tokens": 1100,
+    "prompt_tokens_details": {
+      "cached_tokens": 100
+    }
+  }
+}
+```
+
+For both shapes, cached input is a subset of total input. There is no OpenAI
+cache-write token category in these records, so cache writes stay zero.
+
 ## Accuracy caveats
 
 - `output_tokens` can be a mid-stream snapshot (undercount); see
@@ -126,3 +241,6 @@ counted separately by `doctor`.
   Numbers are estimates for trend analysis, not invoice reconciliation.
 - Claude Code prunes transcripts per `cleanupPeriodDays`; the recon corpus
   spans only ~7 weeks. `doctor` reports the observed date span.
+- Codex logs and ChatGPT desktop caches are product-local implementation
+  details and may drift. Parser changes must be verified against current
+  structure-only samples before claiming support.

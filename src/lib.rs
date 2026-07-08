@@ -1,6 +1,6 @@
-//! `tycho` turns Claude Code's local JSONL transcripts into usage analytics:
-//! tokens, cost, cache economics, and trends by day, project, session, and
-//! model.
+//! `tycho` turns local AI tool transcripts and response logs into usage
+//! analytics: tokens, cost, cache economics, and trends by day, project,
+//! session, and model.
 //!
 //! Privacy is structural: the deserialization types in [`record`] have no
 //! field that could hold message content, so content can never be parsed,
