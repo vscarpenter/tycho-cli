@@ -228,6 +228,7 @@ pub fn collect_mtimes(files: &[crate::discover::TranscriptFile]) -> Vec<(String,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discover::Provider;
     use crate::pricing::PricingTable;
     use crate::record::{DedupKey, TokenUsage, UsageEvent};
     use chrono::{DateTime, Utc};
@@ -242,6 +243,7 @@ mod tests {
             cost_usd: None,
             cost: rust_decimal::Decimal::ZERO,
             dedup_key: DedupKey::Uuid(format!("{utc}-{model}-{}", usage.output)),
+            provider: Provider::Claude,
         }
     }
 

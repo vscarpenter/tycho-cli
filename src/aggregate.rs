@@ -368,6 +368,7 @@ pub fn models(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discover::Provider;
     use crate::record::{DedupKey, TokenUsage};
     use chrono::{DateTime, Utc};
 
@@ -387,6 +388,7 @@ mod tests {
             cost_usd: None,
             cost: rust_decimal::Decimal::ZERO,
             dedup_key: DedupKey::Uuid(format!("{utc}-{output}")),
+            provider: Provider::Claude,
         }
     }
 

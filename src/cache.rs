@@ -111,6 +111,7 @@ fn with_counterfactual(model: String, totals: Totals, counterfactual: Decimal) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discover::Provider;
     use crate::record::{DedupKey, TokenUsage};
 
     fn dec(s: &str) -> Decimal {
@@ -127,6 +128,7 @@ mod tests {
             cost_usd: None,
             cost: dec(cost),
             dedup_key: DedupKey::Uuid(format!("{model}-{}", usage.output)),
+            provider: Provider::Claude,
         }
     }
 

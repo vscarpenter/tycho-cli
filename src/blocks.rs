@@ -136,6 +136,7 @@ fn project(block: &BlockTotals, now: DateTime<Utc>) -> BlockProjection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discover::Provider;
     use crate::record::{DedupKey, TokenUsage};
 
     fn ev(utc: &str, model: &str, tokens: u64, cost: &str) -> UsageEvent {
@@ -154,6 +155,7 @@ mod tests {
             cost_usd: None,
             cost: cost.parse().unwrap(),
             dedup_key: DedupKey::Uuid(format!("{utc}-{model}")),
+            provider: Provider::Claude,
         }
     }
 

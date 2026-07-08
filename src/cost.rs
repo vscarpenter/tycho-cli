@@ -93,6 +93,7 @@ fn calculate(usage: &TokenUsage, rates: &ModelPricing) -> Decimal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discover::Provider;
     use crate::record::DedupKey;
 
     fn dec(s: &str) -> Decimal {
@@ -115,6 +116,7 @@ mod tests {
             cost_usd,
             cost: Decimal::ZERO,
             dedup_key: DedupKey::Uuid("u".into()),
+            provider: Provider::Claude,
         }
     }
 

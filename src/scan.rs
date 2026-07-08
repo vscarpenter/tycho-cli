@@ -67,7 +67,7 @@ pub fn scan_files(files: Vec<TranscriptFile>, filter: EventFilter<'_>) -> ScanOu
         .into_par_iter()
         .map(|file| {
             let bytes = std::fs::metadata(&file.path).map(|m| m.len()).unwrap_or(0);
-            let scan = record::parse_file(&file.path);
+            let scan = record::parse_file(&file.path, file.provider);
             (file, bytes, scan)
         })
         .collect();

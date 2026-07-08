@@ -57,6 +57,7 @@ impl Deduper {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discover::Provider;
     use crate::record::TokenUsage;
     use chrono::{TimeZone, Utc};
 
@@ -74,6 +75,7 @@ mod tests {
             cost_usd: None,
             cost: rust_decimal::Decimal::ZERO,
             dedup_key: key,
+            provider: Provider::Claude,
         }
     }
 

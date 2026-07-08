@@ -14,6 +14,8 @@ use std::path::Path;
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 
+use crate::discover::Provider;
+
 /// Deduplicated token counts for one API message, with cache writes split
 /// by TTL (see `docs/SCHEMA.md`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -61,6 +63,9 @@ pub struct UsageEvent {
     pub cost: rust_decimal::Decimal,
     /// Identity used to collapse duplicate streaming records.
     pub dedup_key: DedupKey,
+    /// The provider of the format that parsed this record (stamped at
+    /// parse time, not sniffed again downstream).
+    pub provider: Provider,
 }
 
 /// Why a line did not produce a [`UsageEvent`]. Skips are data, not errors:
@@ -321,16 +326,19 @@ impl RawUsage {
     }
 }
 
-/// Parse one transcript line. `Err` means "skip for this reason", never a
-/// fatal condition. Stateful Codex records are fully supported by
-/// [`parse_file`]; this stateless helper can parse Claude and standalone
-/// OpenAI response records.
+/// Parse one line with no cross-line state, sniffing all supported formats
+/// (the `External` rules). Codex token_count lines need [`parse_file`]'s
+/// stateful context and will skip here with `MissingModel`-style reasons.
 pub fn parse_line(line: &str) -> Result<UsageEvent, SkipReason> {
-    LineParser::default().parse_line(line)
+    LineParser {
+        provider: Provider::External,
+        ..LineParser::default()
+    }
+    .parse_line(line)
 }
 
-#[derive(Default)]
 struct LineParser {
+    provider: Provider,
     fallback_session_id: Option<String>,
     codex_session_id: Option<String>,
     codex_project: Option<String>,
@@ -339,9 +347,24 @@ struct LineParser {
     codex_usage_index: u64,
 }
 
-impl LineParser {
-    fn new(path: &Path) -> Self {
+impl Default for LineParser {
+    fn default() -> Self {
         Self {
+            provider: Provider::External,
+            fallback_session_id: None,
+            codex_session_id: None,
+            codex_project: None,
+            codex_model: None,
+            codex_turn_id: None,
+            codex_usage_index: 0,
+        }
+    }
+}
+
+impl LineParser {
+    fn new(path: &Path, provider: Provider) -> Self {
+        Self {
+            provider,
             fallback_session_id: path
                 .file_stem()
                 .map(|stem| stem.to_string_lossy().into_owned()),
@@ -351,17 +374,30 @@ impl LineParser {
 
     fn parse_line(&mut self, line: &str) -> Result<UsageEvent, SkipReason> {
         let raw: RawRecord = serde_json::from_str(line).map_err(|_| SkipReason::Malformed)?;
-        self.capture_codex_context(&raw);
-        if let Some(event) = parse_claude_record(&raw)? {
-            return Ok(event);
+        match self.provider {
+            Provider::Claude => {
+                if raw.record_type.as_deref() == Some("assistant") {
+                    parse_claude_record(raw)
+                } else {
+                    Err(SkipReason::NotAssistant)
+                }
+            }
+            Provider::Codex => {
+                self.capture_codex_context(&raw);
+                self.parse_codex_token_count(&raw)?
+                    .ok_or(SkipReason::NotAssistant)
+            }
+            Provider::External => {
+                if raw.record_type.as_deref() == Some("assistant") {
+                    return parse_claude_record(raw);
+                }
+                self.capture_codex_context(&raw);
+                if let Some(event) = self.parse_codex_token_count(&raw)? {
+                    return Ok(event);
+                }
+                parse_openai_record(&raw)?.ok_or(SkipReason::NotAssistant)
+            }
         }
-        if let Some(event) = self.parse_codex_token_count(&raw)? {
-            return Ok(event);
-        }
-        if let Some(event) = parse_openai_record(&raw)? {
-            return Ok(event);
-        }
-        Err(SkipReason::NotAssistant)
     }
 
     fn capture_codex_context(&mut self, raw: &RawRecord) {
@@ -445,41 +481,45 @@ impl LineParser {
             cost_usd: None,
             cost: rust_decimal::Decimal::ZERO,
             dedup_key,
+            provider: Provider::Codex,
         }))
     }
 }
 
-fn parse_claude_record(raw: &RawRecord) -> Result<Option<UsageEvent>, SkipReason> {
-    if raw.record_type.as_deref() != Some("assistant") {
-        return Ok(None);
-    }
-    let message = raw.message.as_ref().ok_or(SkipReason::MissingUsage)?;
+/// Consumes `raw` by value: the caller has already confirmed `record_type`
+/// is `"assistant"`, so this moves `message`/`model`/ids/`session_id`
+/// straight into the event instead of cloning them.
+fn parse_claude_record(raw: RawRecord) -> Result<UsageEvent, SkipReason> {
+    let message = raw.message.ok_or(SkipReason::MissingUsage)?;
     if raw.is_api_error_message == Some(true) || message.model.as_deref() == Some("<synthetic>") {
         return Err(SkipReason::SyntheticApiError);
     }
-    let usage = message.usage.as_ref().ok_or(SkipReason::MissingUsage)?;
+    let usage = message
+        .usage
+        .as_ref()
+        .ok_or(SkipReason::MissingUsage)?
+        .claude_token_usage();
     let timestamp = raw
         .timestamp
         .as_ref()
         .and_then(RawTimestamp::to_utc)
         .ok_or(SkipReason::MissingTimestamp)?;
-    let model = message.model.clone().ok_or(SkipReason::MissingModel)?;
-    let dedup_key = match (&message.id, &raw.request_id) {
-        (Some(message_id), Some(request_id)) => {
-            DedupKey::MessageRequest(message_id.clone(), request_id.clone())
-        }
-        _ => DedupKey::Uuid(raw.uuid.clone().ok_or(SkipReason::MissingIdentity)?),
+    let model = message.model.ok_or(SkipReason::MissingModel)?;
+    let dedup_key = match (message.id, raw.request_id) {
+        (Some(message_id), Some(request_id)) => DedupKey::MessageRequest(message_id, request_id),
+        _ => DedupKey::Uuid(raw.uuid.ok_or(SkipReason::MissingIdentity)?),
     };
-    Ok(Some(UsageEvent {
+    Ok(UsageEvent {
         timestamp,
-        session_id: raw.session_id.clone(),
+        session_id: raw.session_id,
         project: String::new(),
         model,
-        usage: usage.claude_token_usage(),
+        usage,
         cost_usd: raw.cost_usd,
         cost: rust_decimal::Decimal::ZERO,
         dedup_key,
-    }))
+        provider: Provider::Claude,
+    })
 }
 
 fn parse_openai_record(raw: &RawRecord) -> Result<Option<UsageEvent>, SkipReason> {
@@ -507,17 +547,19 @@ fn parse_openai_record(raw: &RawRecord) -> Result<Option<UsageEvent>, SkipReason
         cost_usd: raw.cost_usd,
         cost: rust_decimal::Decimal::ZERO,
         dedup_key: DedupKey::Uuid(id),
+        provider: Provider::External,
     }))
 }
 
-/// Stream a transcript file line by line. Only I/O problems (open/read
+/// Stream a transcript file line by line, dispatching by the root's
+/// provider (see [`LineParser::parse_line`]). Only I/O problems (open/read
 /// failures) are `Err`; content problems are counted in
 /// [`FileScan::stats`]. Lines that are not valid UTF-8 are decoded lossily
 /// rather than aborting the file.
-pub fn parse_file(path: &Path) -> io::Result<FileScan> {
+pub fn parse_file(path: &Path, provider: Provider) -> io::Result<FileScan> {
     let mut reader = io::BufReader::new(std::fs::File::open(path)?);
     let mut scan = FileScan::default();
-    let mut parser = LineParser::new(path);
+    let mut parser = LineParser::new(path, provider);
     let mut buf = Vec::new();
     loop {
         buf.clear();
@@ -648,6 +690,7 @@ mod tests {
             }
         );
         assert_eq!(event.dedup_key, DedupKey::Uuid("resp_1".into()));
+        assert_eq!(event.provider, Provider::External);
     }
 
     #[test]
@@ -658,6 +701,7 @@ mod tests {
         assert_eq!(event.usage.input, 900);
         assert_eq!(event.usage.cache_read, 100);
         assert_eq!(event.usage.output, 100);
+        assert_eq!(event.provider, Provider::External);
     }
 
     #[test]
@@ -704,7 +748,7 @@ mod tests {
         )
         .unwrap();
 
-        let scan = parse_file(&path).unwrap();
+        let scan = parse_file(&path, Provider::Codex).unwrap();
         assert_eq!(scan.stats.lines, 4);
         assert_eq!(scan.stats.events, 2);
         assert_eq!(scan.stats.not_assistant, 2);
@@ -713,6 +757,7 @@ mod tests {
         assert_eq!(scan.events[0].model, "gpt-5.5");
         assert_eq!(scan.events[0].usage.input, 600);
         assert_eq!(scan.events[0].usage.cache_read, 400);
+        assert_eq!(scan.events[0].provider, Provider::Codex);
         assert_eq!(scan.events[1].usage.input, 200);
         assert_ne!(scan.events[0].dedup_key, scan.events[1].dedup_key);
     }
@@ -744,7 +789,7 @@ mod tests {
         .unwrap();
         lines.clear();
 
-        let scan = parse_file(&path).unwrap();
+        let scan = parse_file(&path, Provider::Claude).unwrap();
         assert_eq!(scan.events.len(), 1);
         assert_eq!(scan.stats.lines, 4);
         assert_eq!(scan.stats.events, 1);
@@ -757,7 +802,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("empty.jsonl");
         std::fs::write(&path, "").unwrap();
-        let scan = parse_file(&path).unwrap();
+        let scan = parse_file(&path, Provider::Claude).unwrap();
         assert!(scan.events.is_empty());
         assert_eq!(scan.stats, ParseStats::default());
     }
@@ -783,5 +828,28 @@ mod tests {
         // parsing it double-counted Codex sessions that also log token_count.
         let line = r#"{"type":"response_item","timestamp":"2026-07-08T01:00:00Z","payload":{"response":{"id":"resp_a","object":"response","model":"gpt-5.5","usage":{"input_tokens":1000,"output_tokens":50}}}}"#;
         assert_eq!(parse_line(line).unwrap_err(), SkipReason::NotAssistant);
+    }
+
+    #[test]
+    fn claude_roots_never_parse_foreign_usage_lines() {
+        // A foreign log line with a top-level usage object must not fabricate
+        // an event when the file lives under a Claude root.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trace.jsonl");
+        std::fs::write(&path, r#"{"id":"log_1","event":"llm_call","created_at":1783476000,"model":"gpt-5.4","usage":{"prompt_tokens":123,"completion_tokens":4}}"#).unwrap();
+        let scan = parse_file(&path, Provider::Claude).unwrap();
+        assert_eq!(scan.stats.events, 0);
+        assert_eq!(scan.stats.not_assistant, 1);
+        // The same line under an External root IS an event (explicit --dir opt-in).
+        let scan = parse_file(&path, Provider::External).unwrap();
+        assert_eq!(scan.stats.events, 1);
+    }
+
+    #[test]
+    fn events_carry_the_format_provider() {
+        let claude = r#"{"type":"assistant","uuid":"u-1","timestamp":"2026-07-08T01:00:00Z","requestId":"r","message":{"id":"m","model":"claude-opus-4-8","usage":{"input_tokens":1,"output_tokens":1}}}"#;
+        assert_eq!(parse_line(claude).unwrap().provider, Provider::Claude);
+        let openai = r#"{"id":"resp_1","created_at":1783476000,"model":"gpt-5.4","usage":{"input_tokens":10,"output_tokens":1}}"#;
+        assert_eq!(parse_line(openai).unwrap().provider, Provider::External);
     }
 }
