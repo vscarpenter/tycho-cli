@@ -7,6 +7,10 @@
 //! gap always crosses a window end, so this single check subsumes ccusage's
 //! explicit gap rule. Unlike the group-by reports, block membership depends on
 //! running state, so this is a fold, not a `BTreeMap` bucketing.
+//!
+//! Blocks only means something for Claude's 5-hour windows, so the CLI scopes
+//! it to Claude events by default; pass `--provider codex` or `--provider
+//! openai` to widen it to another provider's events instead.
 
 use chrono::{DateTime, Duration, DurationRound, NaiveDate, Utc};
 use chrono_tz::Tz;

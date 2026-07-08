@@ -20,7 +20,7 @@ use chrono_tz::Tz;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 
 use crate::cost::{CostMode, Coster};
-use crate::discover::{self, SearchRoot, TranscriptFile};
+use crate::discover::{self, Provider, SearchRoot, TranscriptFile};
 use crate::pricing::PricingTable;
 use crate::scan::{self, EventFilter};
 use app::{App, Control, handle_key};
@@ -37,10 +37,12 @@ const POLL: Duration = Duration::from_millis(100);
 /// [`scan::scan`]: `project` prefilters whole files only for Claude roots
 /// (path-authoritative there); Codex and External files always parse, and
 /// `project`/`model` are applied per event by [`scan::scan_files`] instead.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_snapshot(
     roots: &[SearchRoot],
     project: Option<&str>,
     model: Option<&str>,
+    provider: Option<Provider>,
     mode: CostMode,
     pricing: &PricingTable,
     tz: Tz,
@@ -59,7 +61,7 @@ pub fn compute_snapshot(
         EventFilter {
             project,
             model,
-            provider: None,
+            provider,
         },
     );
     Coster::new(pricing, mode).apply(&mut outcome.events);
@@ -69,16 +71,27 @@ pub fn compute_snapshot(
 /// Run the interactive dashboard until the user quits. Sets up the terminal
 /// (raw mode, alternate screen, panic-restore hook) via `ratatui::init`, and
 /// always restores it via `ratatui::restore`, even on error.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     roots: Vec<SearchRoot>,
     project: Option<String>,
     model: Option<String>,
+    provider: Option<Provider>,
     mode: CostMode,
     pricing: PricingTable,
     tz: Tz,
 ) -> io::Result<()> {
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal, roots, project, model, mode, pricing, tz);
+    let result = event_loop(
+        &mut terminal,
+        roots,
+        project,
+        model,
+        provider,
+        mode,
+        pricing,
+        tz,
+    );
     ratatui::restore();
     result
 }
@@ -92,6 +105,7 @@ fn event_loop(
     roots: Vec<SearchRoot>,
     project: Option<String>,
     model: Option<String>,
+    provider: Option<Provider>,
     mode: CostMode,
     pricing: PricingTable,
     tz: Tz,
@@ -107,6 +121,7 @@ fn event_loop(
                 &roots,
                 project.as_deref(),
                 model.as_deref(),
+                provider,
                 mode,
                 &pricing,
                 tz,
@@ -182,6 +197,7 @@ mod tests {
         let snapshot = compute_snapshot(
             &roots,
             Some("gsd"),
+            None,
             None,
             CostMode::Auto,
             &table,

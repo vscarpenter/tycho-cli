@@ -100,6 +100,10 @@ pub struct GlobalArgs {
     #[arg(long, value_name = "SUBSTR", global = true)]
     pub model: Option<String>,
 
+    /// Only count events from one provider (blocks defaults to claude).
+    #[arg(long, global = true, value_enum)]
+    pub provider: Option<ProviderArg>,
+
     /// Report timezone as an IANA name, e.g. America/Chicago (default: system local)
     #[arg(long, value_name = "IANA", global = true, conflicts_with = "utc")]
     pub tz: Option<Tz>,
@@ -149,6 +153,26 @@ impl From<ModeArg> for crate::cost::CostMode {
             ModeArg::Calculate => Self::Calculate,
             ModeArg::Display => Self::Display,
         }
+    }
+}
+
+/// `--provider` values (see [`crate::discover::Provider`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ProviderArg {
+    /// Claude Code transcripts
+    Claude,
+    /// Codex CLI transcripts
+    Codex,
+    /// Other transcripts ingested via `--dir` (discovered as `External`)
+    Openai,
+}
+
+/// Maps the CLI-facing `--provider` value to the internal discovery enum.
+pub fn map_provider_arg(arg: ProviderArg) -> crate::discover::Provider {
+    match arg {
+        ProviderArg::Claude => crate::discover::Provider::Claude,
+        ProviderArg::Codex => crate::discover::Provider::Codex,
+        ProviderArg::Openai => crate::discover::Provider::External,
     }
 }
 
@@ -280,5 +304,11 @@ mod tests {
         for cmd in ["monthly", "projects", "models", "doctor"] {
             assert!(parse(&[cmd]).is_ok(), "{cmd} should parse");
         }
+    }
+
+    #[test]
+    fn provider_flag_parses_before_the_subcommand() {
+        let cli = parse(&["--provider", "codex", "daily"]).unwrap();
+        assert_eq!(cli.global.provider, Some(ProviderArg::Codex));
     }
 }

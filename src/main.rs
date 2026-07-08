@@ -10,9 +10,9 @@ use chrono::Utc;
 use chrono_tz::Tz;
 use clap::{CommandFactory, Parser};
 
-use tycho::cli::{self, Cli, Command};
+use tycho::cli::{self, Cli, Command, ProviderArg};
 use tycho::cost::{self, Coster};
-use tycho::discover::SearchRoot;
+use tycho::discover::{Provider, SearchRoot};
 use tycho::pricing::{self, PricingTable};
 use tycho::report::{csv, json, table};
 use tycho::scan::{self, EventFilter, ScanOutcome};
@@ -38,10 +38,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         return run_live(&cli, tz, &roots, pricing);
     }
 
+    let is_blocks = matches!(cli.effective_command(), Command::Blocks);
     let filter = EventFilter {
         project: cli.global.project.as_deref(),
         model: cli.global.model.as_deref(),
-        provider: None,
+        provider: effective_provider(is_blocks, cli.global.provider),
     };
 
     let mut outcome = scan::scan(&roots, filter);
@@ -65,11 +66,13 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 fn run_live(cli: &Cli, tz: Tz, roots: &[SearchRoot], pricing: PricingTable) -> anyhow::Result<()> {
     reject_csv(cli.global.csv);
     let g = &cli.global;
+    let provider = effective_provider(false, g.provider);
     if g.json || !std::io::stdout().is_terminal() {
         let state = tui::compute_snapshot(
             roots,
             g.project.as_deref(),
             g.model.as_deref(),
+            provider,
             g.mode.into(),
             &pricing,
             tz,
@@ -82,11 +85,22 @@ fn run_live(cli: &Cli, tz: Tz, roots: &[SearchRoot], pricing: PricingTable) -> a
             roots.to_vec(),
             g.project.clone(),
             g.model.clone(),
+            provider,
             g.mode.into(),
             pricing,
             tz,
         )?;
         Ok(())
+    }
+}
+
+/// Blocks mirrors Claude's 5-hour usage-limit windows, so it defaults to
+/// Claude events unless the user widens it with --provider.
+fn effective_provider(command_is_blocks: bool, arg: Option<ProviderArg>) -> Option<Provider> {
+    match (command_is_blocks, arg) {
+        (_, Some(arg)) => Some(cli::map_provider_arg(arg)),
+        (true, None) => Some(Provider::Claude),
+        (false, None) => None,
     }
 }
 
@@ -234,5 +248,24 @@ fn reject_csv(csv: bool) {
                 "--csv is only supported for daily, monthly, and sessions; use --json",
             )
             .exit(); // exits with code 2
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocks_defaults_to_claude_provider() {
+        assert_eq!(effective_provider(true, None), Some(Provider::Claude));
+        assert_eq!(effective_provider(false, None), None);
+        assert_eq!(
+            effective_provider(true, Some(ProviderArg::Codex)),
+            Some(Provider::Codex)
+        );
+        assert_eq!(
+            effective_provider(false, Some(ProviderArg::Openai)),
+            Some(Provider::External)
+        );
     }
 }
