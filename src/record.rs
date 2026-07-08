@@ -157,13 +157,8 @@ struct RawRecord {
     #[serde(alias = "created_at")]
     created_at: Option<RawTimestamp>,
     id: Option<String>,
-    object: Option<String>,
     model: Option<String>,
-    #[serde(alias = "conversation_id")]
-    conversation_id: Option<String>,
-    #[serde(alias = "thread_id")]
-    thread_id: Option<String>,
-    #[serde(rename = "sessionId", alias = "session_id")]
+    #[serde(rename = "sessionId")]
     session_id: Option<String>,
     #[serde(alias = "request_id")]
     request_id: Option<String>,
@@ -172,7 +167,6 @@ struct RawRecord {
     cost_usd: Option<f64>,
     message: Option<RawMessage>,
     usage: Option<RawUsage>,
-    response: Option<RawOpenAiResponse>,
     payload: Option<RawCodexPayload>,
 }
 
@@ -211,22 +205,6 @@ struct RawTokenDetails {
 }
 
 #[derive(Deserialize)]
-struct RawOpenAiResponse {
-    id: Option<String>,
-    object: Option<String>,
-    created: Option<RawTimestamp>,
-    created_at: Option<RawTimestamp>,
-    model: Option<String>,
-    usage: Option<RawUsage>,
-    #[serde(alias = "conversationId")]
-    conversation_id: Option<String>,
-    #[serde(alias = "threadId")]
-    thread_id: Option<String>,
-    #[serde(rename = "sessionId", alias = "session_id")]
-    session_id: Option<String>,
-}
-
-#[derive(Deserialize)]
 struct RawCodexPayload {
     #[serde(rename = "type")]
     payload_type: Option<String>,
@@ -238,7 +216,6 @@ struct RawCodexPayload {
     #[serde(rename = "turnId", alias = "turn_id")]
     turn_id: Option<String>,
     info: Option<RawCodexInfo>,
-    response: Option<RawOpenAiResponse>,
 }
 
 #[derive(Deserialize)]
@@ -505,88 +482,32 @@ fn parse_claude_record(raw: &RawRecord) -> Result<Option<UsageEvent>, SkipReason
     }))
 }
 
-struct OpenAiCandidate<'a> {
-    id: Option<&'a str>,
-    model: Option<&'a str>,
-    usage: Option<&'a RawUsage>,
-    created: Option<&'a RawTimestamp>,
-    created_at: Option<&'a RawTimestamp>,
-    session_id: Option<&'a str>,
-    conversation_id: Option<&'a str>,
-    thread_id: Option<&'a str>,
-}
-
 fn parse_openai_record(raw: &RawRecord) -> Result<Option<UsageEvent>, SkipReason> {
-    let Some(candidate) = openai_candidate(raw) else {
+    let Some(raw_usage) = raw.usage.as_ref() else {
         return Ok(None);
     };
-    let usage = candidate
-        .usage
-        .and_then(RawUsage::openai_token_usage)
+    let usage = raw_usage
+        .openai_token_usage()
         .ok_or(SkipReason::MissingUsage)?;
     let timestamp = raw
         .timestamp
         .as_ref()
         .and_then(RawTimestamp::to_utc)
-        .or_else(|| candidate.created_at.and_then(RawTimestamp::to_utc))
-        .or_else(|| candidate.created.and_then(RawTimestamp::to_utc))
+        .or_else(|| raw.created_at.as_ref().and_then(RawTimestamp::to_utc))
+        .or_else(|| raw.created.as_ref().and_then(RawTimestamp::to_utc))
         .ok_or(SkipReason::MissingTimestamp)?;
-    let model = candidate.model.ok_or(SkipReason::MissingModel)?;
-    let id = candidate.id.ok_or(SkipReason::MissingIdentity)?;
+    let model = raw.model.clone().ok_or(SkipReason::MissingModel)?;
+    let id = raw.id.clone().ok_or(SkipReason::MissingIdentity)?;
     Ok(Some(UsageEvent {
         timestamp,
-        session_id: candidate
-            .session_id
-            .or(candidate.conversation_id)
-            .or(candidate.thread_id)
-            .map(str::to_owned)
-            .or_else(|| Some(id.to_owned())),
+        session_id: Some(id.clone()),
         project: String::new(),
-        model: model.to_owned(),
+        model,
         usage,
         cost_usd: raw.cost_usd,
         cost: rust_decimal::Decimal::ZERO,
-        dedup_key: DedupKey::Uuid(id.to_owned()),
+        dedup_key: DedupKey::Uuid(id),
     }))
-}
-
-fn openai_candidate(raw: &RawRecord) -> Option<OpenAiCandidate<'_>> {
-    if raw.usage.is_some() || looks_like_openai_object(raw.object.as_deref(), raw.id.as_deref()) {
-        return Some(OpenAiCandidate {
-            id: raw.id.as_deref(),
-            model: raw.model.as_deref(),
-            usage: raw.usage.as_ref(),
-            created: raw.created.as_ref(),
-            created_at: raw.created_at.as_ref(),
-            session_id: raw.session_id.as_deref(),
-            conversation_id: raw.conversation_id.as_deref(),
-            thread_id: raw.thread_id.as_deref(),
-        });
-    }
-    if let Some(response) = raw.response.as_ref().or_else(|| {
-        raw.payload
-            .as_ref()
-            .and_then(|payload| payload.response.as_ref())
-    }) && (response.usage.is_some()
-        || looks_like_openai_object(response.object.as_deref(), response.id.as_deref()))
-    {
-        return Some(OpenAiCandidate {
-            id: response.id.as_deref(),
-            model: response.model.as_deref(),
-            usage: response.usage.as_ref(),
-            created: response.created.as_ref(),
-            created_at: response.created_at.as_ref(),
-            session_id: response.session_id.as_deref(),
-            conversation_id: response.conversation_id.as_deref(),
-            thread_id: response.thread_id.as_deref(),
-        });
-    }
-    None
-}
-
-fn looks_like_openai_object(object: Option<&str>, id: Option<&str>) -> bool {
-    object.is_some_and(|object| object == "response" || object.starts_with("chat.completion"))
-        || id.is_some_and(|id| id.starts_with("resp_") || id.starts_with("chatcmpl"))
 }
 
 /// Stream a transcript file line by line. Only I/O problems (open/read
@@ -839,5 +760,28 @@ mod tests {
         let scan = parse_file(&path).unwrap();
         assert!(scan.events.is_empty());
         assert_eq!(scan.stats, ParseStats::default());
+    }
+
+    #[test]
+    fn dual_key_session_id_records_still_parse() {
+        // SCHEMA.md documents session_id as a snake_case duplicate of sessionId;
+        // records carrying both must not be rejected as duplicate serde fields.
+        let line = r#"{"type":"assistant","uuid":"u-2","sessionId":"sess-1","session_id":"sess-1","timestamp":"2026-07-08T01:00:00Z","requestId":"req_B","message":{"id":"msg_B","model":"m","usage":{"input_tokens":2,"output_tokens":2}}}"#;
+        let event = parse_line(line).unwrap();
+        assert_eq!(event.session_id.as_deref(), Some("sess-1"));
+    }
+
+    #[test]
+    fn usage_null_chunks_are_other_record_types_not_missing_usage() {
+        let line = r#"{"id":"chatcmpl_c1","object":"chat.completion.chunk","created":1783479600,"model":"chat-latest","usage":null}"#;
+        assert_eq!(parse_line(line).unwrap_err(), SkipReason::NotAssistant);
+    }
+
+    #[test]
+    fn nested_response_wrappers_are_not_parsed() {
+        // Undocumented shape (SCHEMA.md documents no embedded response object);
+        // parsing it double-counted Codex sessions that also log token_count.
+        let line = r#"{"type":"response_item","timestamp":"2026-07-08T01:00:00Z","payload":{"response":{"id":"resp_a","object":"response","model":"gpt-5.5","usage":{"input_tokens":1000,"output_tokens":50}}}}"#;
+        assert_eq!(parse_line(line).unwrap_err(), SkipReason::NotAssistant);
     }
 }
