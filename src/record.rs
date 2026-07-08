@@ -391,7 +391,8 @@ impl LineParser {
                 if let Some(event) = self.parse_codex_token_count(&raw)? {
                     return Ok(event);
                 }
-                parse_openai_record(&raw)?.ok_or(SkipReason::NotAssistant)
+                self.parse_openai_record(&raw)?
+                    .ok_or(SkipReason::NotAssistant)
             }
         }
     }
@@ -475,6 +476,47 @@ impl LineParser {
             provider: Provider::Codex,
         }))
     }
+
+    /// One export file is one session: `session_id` comes from the file
+    /// stem, not the per-response id (stateless `parse_line` has no stem,
+    /// so it yields `session_id: None`). Records with no `id` (redacted
+    /// exports) still get a stable per-line dedup identity instead of
+    /// vanishing as `MissingIdentity`.
+    fn parse_openai_record(&mut self, raw: &RawRecord) -> Result<Option<UsageEvent>, SkipReason> {
+        let Some(raw_usage) = raw.usage.as_ref() else {
+            return Ok(None);
+        };
+        let usage = raw_usage
+            .openai_token_usage()
+            .ok_or(SkipReason::MissingUsage)?;
+        let timestamp = raw
+            .timestamp
+            .as_ref()
+            .and_then(RawTimestamp::to_utc)
+            .or_else(|| raw.created_at.as_ref().and_then(RawTimestamp::to_utc))
+            .or_else(|| raw.created.as_ref().and_then(RawTimestamp::to_utc))
+            .ok_or(SkipReason::MissingTimestamp)?;
+        let model = raw.model.clone().ok_or(SkipReason::MissingModel)?;
+        self.usage_index += 1;
+        let dedup_key = match raw.id.clone() {
+            Some(id) => DedupKey::Uuid(id),
+            None => {
+                let stem = self.fallback_session_id.as_deref().unwrap_or("(unknown)");
+                DedupKey::Uuid(format!("openai:{stem}:{}", self.usage_index))
+            }
+        };
+        Ok(Some(UsageEvent {
+            timestamp,
+            session_id: self.fallback_session_id.clone(),
+            project: String::new(),
+            model,
+            usage,
+            cost_usd: raw.cost_usd,
+            cost: rust_decimal::Decimal::ZERO,
+            provider: Provider::External,
+            dedup_key,
+        }))
+    }
 }
 
 /// Consumes `raw` by value: the caller has already confirmed `record_type`
@@ -513,35 +555,6 @@ fn parse_claude_record(raw: RawRecord) -> Result<UsageEvent, SkipReason> {
     })
 }
 
-fn parse_openai_record(raw: &RawRecord) -> Result<Option<UsageEvent>, SkipReason> {
-    let Some(raw_usage) = raw.usage.as_ref() else {
-        return Ok(None);
-    };
-    let usage = raw_usage
-        .openai_token_usage()
-        .ok_or(SkipReason::MissingUsage)?;
-    let timestamp = raw
-        .timestamp
-        .as_ref()
-        .and_then(RawTimestamp::to_utc)
-        .or_else(|| raw.created_at.as_ref().and_then(RawTimestamp::to_utc))
-        .or_else(|| raw.created.as_ref().and_then(RawTimestamp::to_utc))
-        .ok_or(SkipReason::MissingTimestamp)?;
-    let model = raw.model.clone().ok_or(SkipReason::MissingModel)?;
-    let id = raw.id.clone().ok_or(SkipReason::MissingIdentity)?;
-    Ok(Some(UsageEvent {
-        timestamp,
-        session_id: Some(id.clone()),
-        project: String::new(),
-        model,
-        usage,
-        cost_usd: raw.cost_usd,
-        cost: rust_decimal::Decimal::ZERO,
-        dedup_key: DedupKey::Uuid(id),
-        provider: Provider::External,
-    }))
-}
-
 /// Stream a transcript file line by line, dispatching by the root's
 /// provider (see [`LineParser::parse_line`]). Only I/O problems (open/read
 /// failures) are `Err`; content problems are counted in
@@ -558,7 +571,7 @@ pub fn parse_file(path: &Path, provider: Provider) -> io::Result<FileScan> {
             return Ok(scan);
         }
         let line = String::from_utf8_lossy(&buf);
-        let line = line.trim();
+        let line = line.trim_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}');
         if line.is_empty() {
             continue;
         }
@@ -668,7 +681,7 @@ mod tests {
         let line = r#"{"id":"resp_1","object":"response","created_at":1783476000,"model":"gpt-5.4","usage":{"input_tokens":1000,"output_tokens":50,"total_tokens":1050,"input_tokens_details":{"cached_tokens":400},"output_tokens_details":{"reasoning_tokens":10}}}"#;
         let event = parse_line(line).unwrap();
         assert_eq!(event.model, "gpt-5.4");
-        assert_eq!(event.session_id.as_deref(), Some("resp_1"));
+        assert_eq!(event.session_id, None);
         assert_eq!(event.timestamp.to_rfc3339(), "2026-07-08T02:00:00+00:00");
         assert_eq!(
             event.usage,
@@ -923,5 +936,47 @@ mod tests {
         assert_eq!(parse_line(claude).unwrap().provider, Provider::Claude);
         let openai = r#"{"id":"resp_1","created_at":1783476000,"model":"gpt-5.4","usage":{"input_tokens":10,"output_tokens":1}}"#;
         assert_eq!(parse_line(openai).unwrap().provider, Provider::External);
+    }
+
+    #[test]
+    fn openai_exports_group_one_session_per_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("export-jan.jsonl");
+        std::fs::write(&path, [
+            r#"{"id":"chatcmpl-aaa","created":1783479600,"model":"gpt-5.4","usage":{"prompt_tokens":10,"completion_tokens":1}}"#,
+            r#"{"id":"chatcmpl-bbb","created":1783479660,"model":"gpt-5.4","usage":{"prompt_tokens":20,"completion_tokens":2}}"#,
+        ].join("\n")).unwrap();
+        let scan = parse_file(&path, Provider::External).unwrap();
+        assert_eq!(scan.stats.events, 2);
+        assert!(
+            scan.events
+                .iter()
+                .all(|e| e.session_id.as_deref() == Some("export-jan"))
+        );
+        assert_ne!(scan.events[0].dedup_key, scan.events[1].dedup_key);
+    }
+
+    #[test]
+    fn idless_openai_records_are_counted_with_synthesized_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("redacted.jsonl");
+        std::fs::write(&path, [
+            r#"{"created_at":1783476000,"model":"gpt-5.4","usage":{"input_tokens":100,"output_tokens":50}}"#,
+            r#"{"created_at":1783476060,"model":"gpt-5.4","usage":{"input_tokens":200,"output_tokens":60}}"#,
+        ].join("\n")).unwrap();
+        let scan = parse_file(&path, Provider::External).unwrap();
+        assert_eq!(scan.stats.events, 2);
+        assert_eq!(scan.stats.missing_identity, 0);
+        assert_ne!(scan.events[0].dedup_key, scan.events[1].dedup_key);
+    }
+
+    #[test]
+    fn bom_prefixed_first_line_parses() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bom.jsonl");
+        std::fs::write(&path, "\u{FEFF}{\"id\":\"resp_1\",\"created_at\":1783476000,\"model\":\"gpt-5.4\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}\n").unwrap();
+        let scan = parse_file(&path, Provider::External).unwrap();
+        assert_eq!(scan.stats.events, 1);
+        assert_eq!(scan.stats.malformed, 0);
     }
 }
