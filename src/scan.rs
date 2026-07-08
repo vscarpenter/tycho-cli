@@ -154,6 +154,12 @@ pub struct DoctorReport {
     pub models: Vec<String>,
     /// Observed models with no pricing entry (priced at zero), sorted.
     pub unpriced_models: Vec<String>,
+    /// Observed models whose matched pricing entry has every rate at zero,
+    /// sorted.
+    pub zero_rated_models: Vec<String>,
+    /// Observed Ollama-style `name:tag` models with no pricing entry,
+    /// sorted.
+    pub local_models: Vec<String>,
 }
 
 /// Assemble the doctor report from a finished scan. Filters that were
@@ -161,12 +167,14 @@ pub struct DoctorReport {
 /// summary counters (`files_scanned` and friends) cover Claude files whose
 /// path-encoded project matched, plus *all* Codex and External files, since
 /// those providers are only filtered per event, after parsing.
-/// `unpriced_models` comes from the cost engine so this module stays
-/// pricing-agnostic.
+/// `unpriced_models`, `zero_rated_models`, and `local_models` all come from
+/// the cost engine so this module stays pricing-agnostic.
 pub fn doctor(
     roots: &[SearchRoot],
     outcome: &ScanOutcome,
     unpriced_models: Vec<String>,
+    zero_rated_models: Vec<String>,
+    local_models: Vec<String>,
 ) -> DoctorReport {
     let date_span = outcome
         .events
@@ -196,6 +204,8 @@ pub fn doctor(
         date_span,
         models,
         unpriced_models,
+        zero_rated_models,
+        local_models,
     }
 }
 
@@ -378,7 +388,13 @@ mod tests {
             },
         ];
         let outcome = scan(&roots, EventFilter::default());
-        let report = doctor(&roots, &outcome, vec!["mystery-model".into()]);
+        let report = doctor(
+            &roots,
+            &outcome,
+            vec!["mystery-model".into()],
+            vec!["gpt-5.2-codex".into()],
+            vec!["qwen3.6:27b".into()],
+        );
 
         assert_eq!(report.roots.len(), 2);
         assert!(report.roots[0].exists);
@@ -394,6 +410,8 @@ mod tests {
         assert_eq!(first, last); // all fixture events share one timestamp
         assert_eq!(report.models, ["claude-opus-4-8", "claude-sonnet-5"]);
         assert_eq!(report.unpriced_models, ["mystery-model"]);
+        assert_eq!(report.zero_rated_models, ["gpt-5.2-codex"]);
+        assert_eq!(report.local_models, ["qwen3.6:27b"]);
         assert_eq!(report.summary.duplicates_collapsed, 2);
     }
 

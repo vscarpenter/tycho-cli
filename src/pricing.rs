@@ -65,13 +65,18 @@ impl PricingTable {
         Self::parse(&std::fs::read_to_string(path)?)
     }
 
-    /// Find rates for a model id by longest-prefix match, so
-    /// `claude-opus-4-8-20270101` matches a `claude-opus-4-8` entry and a
-    /// more specific entry always beats a shorter one.
+    /// Find rates for a model id by longest-prefix match with a `-`
+    /// boundary, so `claude-opus-4-8-20270101` matches a `claude-opus-4-8`
+    /// entry (and a more specific entry always beats a shorter one), while
+    /// `gpt-5.41` does *not* spuriously match a `gpt-5.4` entry.
     pub fn lookup(&self, model: &str) -> Option<&ModelPricing> {
         self.models
             .iter()
-            .filter(|(key, _)| model.starts_with(key.as_str()))
+            .filter(|(key, _)| {
+                model == key.as_str()
+                    || (model.starts_with(key.as_str())
+                        && model.as_bytes().get(key.len()) == Some(&b'-'))
+            })
             .max_by_key(|(key, _)| key.len())
             .map(|(_, pricing)| pricing)
     }
@@ -117,12 +122,11 @@ mod tests {
             "gpt-5.3-codex",
             "gpt-5.2-codex",
             "gpt-5.1-codex",
-            "gpt-5.1-codex-max",
             "gpt-5-codex",
             "chat-latest",
             "codex-auto-review",
-            "gemma4:12b",
-            "qwen3.6:27b",
+            "codex-unknown",
+            "gpt-5-chat-latest",
         ] {
             assert!(table.lookup(model).is_some(), "missing rates for {model}");
         }
@@ -138,11 +142,25 @@ mod tests {
         assert_eq!(gpt.cache_read, dec("0.5"));
         let pro = table.lookup("gpt-5.5-pro").unwrap();
         assert_eq!(pro.input, dec("30"));
+        // gpt-5.1-codex-max has no stanza of its own; it resolves via the
+        // '-' boundary onto gpt-5.1-codex, which is zero-rated.
         let legacy = table.lookup("gpt-5.1-codex-max").unwrap();
         assert_eq!(legacy.input, dec("0"));
         assert_eq!(legacy.output, dec("0"));
-        let local = table.lookup("qwen3.6:27b").unwrap();
-        assert_eq!(local.input, dec("0"));
+        // Ollama-style name:tag ids have no entry at all; doctor lists
+        // these as "local" rather than "unpriced".
+        assert!(table.lookup("qwen3.6:27b").is_none());
+    }
+
+    #[test]
+    fn lookup_requires_a_dash_boundary() {
+        let table = PricingTable::embedded();
+        assert!(table.lookup("claude-opus-4-8-20270101").is_some()); // dated id, '-' boundary
+        assert!(table.lookup("gpt-5.41").is_none()); // no boundary: must not match gpt-5.4
+        assert!(table.lookup("gpt-5.1-codex-max").is_some()); // '-' boundary onto gpt-5.1-codex
+        assert!(table.lookup("codex-unknown").is_some());
+        assert!(table.lookup("gpt-5-chat-latest").is_some());
+        assert!(table.lookup("gemma4:12b").is_none()); // stanza deleted; handled as local
     }
 
     #[test]

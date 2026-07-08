@@ -54,9 +54,16 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             tycho::BIN_NAME
         );
     }
+    let zero_rated = cost::zero_rated_models(&outcome.events, &pricing);
+    let local = cost::local_models(&outcome.events, &pricing);
     Coster::new(&pricing, cli.global.mode.into()).apply(&mut outcome.events);
 
-    println!("{}", render(&cli, tz, &roots, outcome, unpriced, &pricing));
+    println!(
+        "{}",
+        render(
+            &cli, tz, &roots, outcome, unpriced, zero_rated, local, &pricing
+        )
+    );
     Ok(())
 }
 
@@ -148,12 +155,15 @@ fn resolve_pricing(cli: &Cli) -> anyhow::Result<PricingTable> {
     Ok(table)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render(
     cli: &Cli,
     tz: Tz,
     roots: &[SearchRoot],
     outcome: ScanOutcome,
     unpriced: Vec<String>,
+    zero_rated: Vec<String>,
+    local: Vec<String>,
     pricing: &PricingTable,
 ) -> String {
     let global = &cli.global;
@@ -218,7 +228,7 @@ fn render(
         }
         Command::Doctor => {
             reject_csv(global.csv);
-            let report = scan::doctor(roots, &outcome, unpriced);
+            let report = scan::doctor(roots, &outcome, unpriced, zero_rated, local);
             if global.json {
                 json::doctor(&report)
             } else {

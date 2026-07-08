@@ -313,6 +313,18 @@ pub fn doctor(report: &DoctorReport) -> String {
         report.unpriced_models.join("\n")
     };
     table.add_row(vec!["Models without pricing".to_owned(), unpriced]);
+    let zero_rated = if report.zero_rated_models.is_empty() {
+        "(none)".to_owned()
+    } else {
+        report.zero_rated_models.join("\n")
+    };
+    table.add_row(vec!["Zero-rated models".to_owned(), zero_rated]);
+    let local = if report.local_models.is_empty() {
+        "(none)".to_owned()
+    } else {
+        report.local_models.join("\n")
+    };
+    table.add_row(vec!["Local models".to_owned(), local]);
     table.to_string()
 }
 
@@ -584,6 +596,8 @@ mod tests {
             )),
             models: vec!["claude-opus-4-8".into()],
             unpriced_models: vec!["mystery-model".into()],
+            zero_rated_models: vec!["gpt-5.2-codex".into()],
+            local_models: vec!["qwen3.6:27b".into()],
         };
         let rendered = doctor(&report);
         assert!(rendered.contains("/home/v/.claude/projects"));
@@ -595,6 +609,10 @@ mod tests {
         assert!(rendered.contains("2026-05-17"));
         assert!(rendered.contains("claude-opus-4-8"));
         assert!(rendered.contains("3"), "malformed count shown");
+        assert!(rendered.contains("Zero-rated models"));
+        assert!(rendered.contains("gpt-5.2-codex"));
+        assert!(rendered.contains("Local models"));
+        assert!(rendered.contains("qwen3.6:27b"));
     }
 
     #[test]

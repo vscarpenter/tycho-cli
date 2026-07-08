@@ -68,15 +68,50 @@ impl<'a> Coster<'a> {
     }
 }
 
-/// Distinct model ids that have no pricing entry, sorted.
+/// Distinct model ids that have no pricing entry, sorted. Ollama-style
+/// `name:tag` ids are excluded — those are reported separately by
+/// [`local_models`] and never warned about.
 pub fn unknown_models(events: &[UsageEvent], table: &PricingTable) -> Vec<String> {
     events
         .iter()
-        .filter(|event| table.lookup(&event.model).is_none())
+        .filter(|event| !event.model.contains(':') && table.lookup(&event.model).is_none())
         .map(|event| event.model.clone())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+/// Distinct observed model ids whose matched pricing entry has every rate
+/// at zero: explicitly zero-rated (e.g. a Codex label with no public API
+/// price), as opposed to genuinely unpriced.
+pub fn zero_rated_models(events: &[UsageEvent], table: &PricingTable) -> Vec<String> {
+    events
+        .iter()
+        .filter(|event| table.lookup(&event.model).is_some_and(all_rates_are_zero))
+        .map(|event| event.model.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// Distinct observed model ids with no pricing entry whose id contains a
+/// `:` (an Ollama-style `name:tag` id) — local models, not warned about.
+pub fn local_models(events: &[UsageEvent], table: &PricingTable) -> Vec<String> {
+    events
+        .iter()
+        .filter(|event| event.model.contains(':') && table.lookup(&event.model).is_none())
+        .map(|event| event.model.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn all_rates_are_zero(rates: &ModelPricing) -> bool {
+    rates.input == Decimal::ZERO
+        && rates.output == Decimal::ZERO
+        && rates.cache_write_5m == Decimal::ZERO
+        && rates.cache_write_1h == Decimal::ZERO
+        && rates.cache_read == Decimal::ZERO
 }
 
 /// `tokens x rate-per-million`, exact in decimal.
@@ -174,6 +209,19 @@ mod tests {
         ];
         assert_eq!(coster.cost(&events[0]), Decimal::ZERO);
         assert_eq!(unknown_models(&events, &table), ["mystery-model-9"]);
+    }
+
+    #[test]
+    fn local_and_zero_rated_models_are_split_out() {
+        let table = PricingTable::embedded();
+        let events = vec![
+            event("qwen3.6:27b", None),     // local: ':' id, no entry, no warning
+            event("gpt-5.2-codex", None),   // zero-rated entry
+            event("brand-new-model", None), // unknown: warns
+        ];
+        assert_eq!(local_models(&events, &table), vec!["qwen3.6:27b"]);
+        assert_eq!(zero_rated_models(&events, &table), vec!["gpt-5.2-codex"]);
+        assert_eq!(unknown_models(&events, &table), vec!["brand-new-model"]);
     }
 
     #[test]

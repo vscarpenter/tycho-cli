@@ -10,9 +10,10 @@
 # 2026-08-31; the standard rate is $3 input / $15 output. Override any
 # model at ~/.config/tycho/pricing.toml or with --pricing <PATH>.
 #
-# Model lookup is longest-prefix: "claude-opus-4-8-20270101" matches
-# "claude-opus-4-8"; a hypothetical "claude-opus-4" entry would only catch
-# ids no longer entry matches.
+# Model lookup requires a '-' boundary after a prefix key ("gpt-5.4" matches
+# "gpt-5.4-mini" ids but never "gpt-5.41"). Same-family variants with their
+# own rates (e.g. a future gpt-5.5-codex) still need explicit entries —
+# a bare "gpt-5.5" entry would otherwise price them at API rates.
 #
 # OpenAI rates were verified 2026-07-08 against
 # https://developers.openai.com/api/docs/pricing. They use Standard API rates.
@@ -25,8 +26,9 @@
 # Some Codex session logs contain historical/private model labels that do not
 # appear on the current public API rate card. Those are explicitly zero-rated
 # below to avoid noisy warnings; override them if you have account-specific
-# credit or API pricing for those labels. Local Ollama-style model ids are also
-# zero-rated by prefix.
+# credit or API pricing for those labels. Local Ollama-style model ids
+# (name:tag) carry no entry at all — `doctor` lists them separately as
+# "Local models" instead of warning about them.
 
 [models."claude-fable-5"]
 input = 10.0
@@ -133,13 +135,6 @@ cache_write_5m = 0.0
 cache_write_1h = 0.0
 cache_read = 0.0
 
-[models."gpt-5.1-codex-max"]
-input = 0.0
-output = 0.0
-cache_write_5m = 0.0
-cache_write_1h = 0.0
-cache_read = 0.0
-
 [models."gpt-5.1-codex"]
 input = 0.0
 output = 0.0
@@ -161,6 +156,13 @@ cache_write_5m = 5.0
 cache_write_1h = 5.0
 cache_read = 0.5
 
+[models."gpt-5-chat-latest"]
+input = 5.0
+output = 30.0
+cache_write_5m = 5.0
+cache_write_1h = 5.0
+cache_read = 0.5
+
 [models."codex-auto-review"]
 input = 0.0
 output = 0.0
@@ -168,14 +170,7 @@ cache_write_5m = 0.0
 cache_write_1h = 0.0
 cache_read = 0.0
 
-[models."gemma4:"]
-input = 0.0
-output = 0.0
-cache_write_5m = 0.0
-cache_write_1h = 0.0
-cache_read = 0.0
-
-[models."qwen3.6:"]
+[models."codex-unknown"]
 input = 0.0
 output = 0.0
 cache_write_5m = 0.0

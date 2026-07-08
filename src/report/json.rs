@@ -315,6 +315,8 @@ struct DoctorOut {
     date_span: Option<SpanOut>,
     models: Vec<String>,
     unpriced_models: Vec<String>,
+    zero_rated_models: Vec<String>,
+    local_models: Vec<String>,
 }
 
 /// Render the doctor data-health report as pretty-printed JSON.
@@ -353,6 +355,8 @@ pub fn doctor(report: &DoctorReport) -> String {
         }),
         models: report.models.clone(),
         unpriced_models: report.unpriced_models.clone(),
+        zero_rated_models: report.zero_rated_models.clone(),
+        local_models: report.local_models.clone(),
     };
     to_json(&out)
 }
@@ -760,6 +764,8 @@ mod tests {
             )),
             models: vec!["m1".into()],
             unpriced_models: vec!["mystery-model".into()],
+            zero_rated_models: vec!["gpt-5.2-codex".into()],
+            local_models: vec!["qwen3.6:27b".into()],
         };
         let value: serde_json::Value = serde_json::from_str(&doctor(&report)).unwrap();
         assert_eq!(value["command"], "doctor");
@@ -769,5 +775,7 @@ mod tests {
         assert_eq!(value["duplicates_collapsed"], 2);
         assert_eq!(value["date_span"]["first"], "2026-05-17T00:00:00Z");
         assert_eq!(value["models"][0], "m1");
+        assert_eq!(value["zero_rated_models"][0], "gpt-5.2-codex");
+        assert_eq!(value["local_models"][0], "qwen3.6:27b");
     }
 }
