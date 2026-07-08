@@ -12,6 +12,27 @@ No message content is parsed. Per the project rule, no field is parsed unless
 it appears here or in the referenced docs. If reality and this document ever
 disagree, reality wins: update this file and flag it.
 
+## Provider-tagged search roots
+
+Every search root carries a provider tag, and parsing is dispatched by that
+tag rather than re-sniffed per line — except under `External`, where each
+line is sniffed:
+
+| Root provider | Default roots | What gets parsed |
+|---|---|---|
+| `Claude` | `~/.claude/projects` (+ `CLAUDE_CONFIG_DIR` entries), the Xcode `CodingAssistant` location | Only `assistant` records |
+| `Codex` | `$CODEX_HOME/sessions`, or `~/.codex/sessions` when unset/empty | Only `event_msg` records where `payload.type == "token_count"` |
+| `External` | Any `--dir <PATH>` (repeatable; replaces the default roots entirely) | Format-sniffed per line: try the Claude `assistant` shape, then the Codex envelope, then a standalone OpenAI record — gated only on a top-level `usage` object being present |
+
+Because `External` detection is usage-gated rather than shape-gated, a
+`--dir` directory should contain only usage logs: any foreign JSONL line that
+happens to carry a `usage` object is counted as an event. `--provider
+claude|codex|openai` filters any report by the format that actually parsed
+each event, not by the root it was discovered under — a Claude-shaped line
+found via `--dir` still counts as `claude`, never `openai`. `blocks` defaults
+to `claude` (it mirrors Claude's 5-hour usage-limit windows) and widens with
+the flag.
+
 ## Claude Code file layout
 
 Three transcript layouts under each root (default `~/.claude/projects/`):
@@ -47,7 +68,10 @@ $CODEX_HOME/sessions/<yyyy>/<mm>/<dd>/rollout-<timestamp>-<session-id>.jsonl
 
 The first path components are dates, not projects, so project filtering must
 be event-level. Codex carries the real project in `payload.cwd` on
-`session_meta` and `turn_context` records.
+`session_meta` and `turn_context` records. That `cwd` is run through the same
+`/`-and-`.`-to-`-` encoding Claude Code applies to its own project directory
+names (see "Claude Code file layout" above), so one repository shows as a
+single project row regardless of which provider wrote the events.
 
 The macOS ChatGPT desktop app currently stores conversation data under
 `~/Library/Application Support/com.openai.chat/...` as opaque `.data` files on
@@ -152,7 +176,7 @@ Context records parsed before token counts:
 | Record | Fields used |
 |---|---|
 | `session_meta` | `payload.id`, `payload.session_id`, `payload.cwd` |
-| `turn_context` | `payload.model`, `payload.cwd`, `payload.turn_id` |
+| `turn_context` | `payload.model`, `payload.cwd` |
 
 Token-count record shape:
 
@@ -188,10 +212,30 @@ the session/turn stream and would double count. OpenAI-style `input_tokens`
 includes cached input, so tycho stores `input_tokens - cached_input_tokens` as
 uncached input and `cached_input_tokens` as cache reads.
 
+When a token-count record is reached before any `turn_context` has supplied a
+model — a resumed session file with no context lines, for example — tycho
+stamps the event's model as the synthetic `codex-unknown` id instead of
+skipping it. `codex-unknown` is zero-rated in the default pricing table, so it
+never triggers an "unpriced model" warning; `doctor` lists it (and any other
+zero-priced-by-design id) under "Zero-rated models", separately from models
+that are genuinely unpriced.
+
+Codex records carry no per-message id analogous to Claude's `message.id`, so
+dedup identity is synthesized per file instead: `codex:{file_stem}:{index}`,
+where `index` counts token-count events within that file starting at 1 and
+`file_stem` falls back to `(unknown)` if the path has none. Keying by file
+(not by session or turn id) keeps two independent rollout files for one
+resumed session from colliding.
+
 ## OpenAI API response records
 
-Standalone JSON/JSONL response logs are parsed when they expose metadata in
-OpenAI's public usage shapes:
+Standalone JSON/JSONL response logs are recognized under `External` roots by
+one gate only: a top-level `usage` object. The `object` field and the
+`resp_`/`chatcmpl_` id prefixes shown below are what real records look like,
+but they are not inspected by the parser — a record with `usage` and no
+recognizable `object` still parses, and a record with `object: "response"`
+but no `usage` does not. One export file is treated as one session:
+`session_id` is the file's stem, not a per-record id.
 
 Responses API:
 
@@ -231,8 +275,28 @@ Chat Completions:
 }
 ```
 
+The `chat-latest` model id above is OpenAI's own doc-example value, not
+something observed in a local export; real Chat Completions logs typically
+carry `gpt-5-chat-latest` instead, which the default pricing table also
+covers.
+
 For both shapes, cached input is a subset of total input. There is no OpenAI
 cache-write token category in these records, so cache writes stay zero.
+
+Dedup identity follows the record's own id when it has one: a `resp_...` or
+`chatcmpl_...` id becomes the dedup key directly. Redacted exports that carry
+no `id` instead get a synthesized `openai:{file_stem}:{index}` key — the same
+per-file scheme Codex uses above — so those records still survive dedup
+instead of vanishing as `MissingIdentity`.
+
+## Timestamp parsing
+
+`timestamp`, `created`, and `created_at` fields accept either an RFC3339
+string (Claude's `"2026-07-02T23:54:44.905Z"` style) or an integer epoch-
+seconds value, bounded to `[2000-01-01T00:00:00Z, 2100-01-01T00:00:00Z)`.
+Anything else — a millisecond epoch landing in year ~58486, a float, or an
+epoch written as a string (`"1234"`) — fails to parse, and the record is
+skipped as `MissingTimestamp` rather than producing an implausible date.
 
 ## Accuracy caveats
 
@@ -244,3 +308,8 @@ cache-write token category in these records, so cache writes stay zero.
 - Codex logs and ChatGPT desktop caches are product-local implementation
   details and may drift. Parser changes must be verified against current
   structure-only samples before claiming support.
+- Historical/private Codex labels with no public API rate are explicitly
+  zero-priced by default, and Ollama-style `name:tag` local model ids carry
+  no pricing entry at all; `doctor` (table and `--json`, as
+  `zero_rated_models`/`local_models`) lists both separately from models that
+  are genuinely unpriced.

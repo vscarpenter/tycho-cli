@@ -92,7 +92,7 @@ pub struct GlobalArgs {
     #[arg(long, value_name = "DATE", global = true)]
     pub until: Option<NaiveDate>,
 
-    /// Only include projects whose directory name contains this substring
+    /// Only include events whose encoded project name (Claude directory name or dash-encoded Codex cwd) contains this substring
     #[arg(long, value_name = "SUBSTR", global = true)]
     pub project: Option<String>,
 

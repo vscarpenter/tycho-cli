@@ -1,10 +1,12 @@
 //! The end-to-end scan pipeline: discover → parse → dedupe.
 //!
 //! This is the seam the CLI calls. `--project` is path-authoritative for
-//! Claude roots, so it skips whole files there before parsing; Codex and
-//! External transcripts carry their project in metadata instead, so for
-//! those it applies per event, alongside `--model` and `--provider`, before
-//! deduplication. Files that cannot be opened are counted, never fatal.
+//! Claude roots, so it skips whole files there before parsing. Codex and
+//! External roots resolve project per event instead — from Codex's `cwd`
+//! metadata when a context record supplied one, else from the file's own
+//! directory position — so `--project` applies there per event, alongside
+//! `--model` and `--provider`, before deduplication. Files that cannot be
+//! opened are counted, never fatal.
 
 use std::path::PathBuf;
 
@@ -55,8 +57,10 @@ pub struct ScanOutcome {
 /// scheduling. `filter.project` prefilters whole files here, but only for
 /// Claude roots: their encoded project directory is path-authoritative, so a
 /// non-matching Claude file need not be opened at all. Codex and External
-/// files always parse — their project comes from metadata inside the file —
-/// and get the same `project` substring check per event in [`scan_files`].
+/// files always parse instead — their project may come from in-file metadata
+/// (Codex's `cwd`) or, when no record supplies one, from the file's own
+/// directory position — and get the same `project` substring check per event
+/// in [`scan_files`].
 pub fn scan(roots: &[SearchRoot], filter: EventFilter<'_>) -> ScanOutcome {
     let files: Vec<_> = discover::discover(roots)
         .into_iter()

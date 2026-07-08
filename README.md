@@ -95,7 +95,10 @@ Claude's usage limits reset: a block starts at your first message (floored to
 the hour) and spans five hours; a new block begins at the next message once
 that window closes. For the block containing "now", tycho projects where its
 cost lands if the current rate holds — `$2.05 so far, ~$4.10 projected by
-17:00`. Honors the usual filters and `--json`; `--csv` is not supported.
+17:00`. Since the 5-hour reset is a Claude-specific mechanic, `blocks`
+defaults to Claude events only; pass `--provider codex` or `--provider openai`
+to widen it to another provider's events. Honors the usual filters and
+`--json`; `--csv` is not supported.
 
 ```
 $ tycho blocks
@@ -123,27 +126,38 @@ corrupts a pipe and can feed a status bar or script.
 
 Global flags on every command: `--dir <PATH>` (repeatable; replaces default
 search roots), `--since`/`--until` (inclusive dates in the report timezone),
-`--project <SUBSTR>`, `--model <SUBSTR>`, `--tz <IANA>`/`--utc`,
-`--mode auto|calculate|display`, `--pricing <PATH>`, `--precise`, `--json`.
-`--csv` works on `daily`, `monthly`, and `sessions`.
+`--project <SUBSTR>`, `--model <SUBSTR>`, `--provider claude|codex|openai`
+(filters to one provider's events; `blocks` defaults to `claude` and this
+flag widens it), `--tz <IANA>`/`--utc`, `--mode auto|calculate|display`,
+`--pricing <PATH>`, `--precise`, `--json`. `--csv` works on `daily`,
+`monthly`, and `sessions`.
 
 `--json` output is a stable, documented contract — treat it as the scripting
 API. Fields are added over time but never renamed or removed.
 
 ## Where the data comes from
 
-By default, `tycho` scans these read-only roots when they exist:
+By default, `tycho` scans these read-only roots when they exist, each tagged
+with the provider that owns its layout:
 
 - Claude Code JSONL transcripts under `~/.claude/projects/`, or the
-  directories in `CLAUDE_CONFIG_DIR`.
-- Xcode's `CodingAssistant` Claude location on macOS.
+  directories in `CLAUDE_CONFIG_DIR` (Claude).
+- Xcode's `CodingAssistant` Claude location on macOS (Claude).
 - Codex JSONL session logs under `$CODEX_HOME/sessions` or
-  `~/.codex/sessions`.
+  `~/.codex/sessions` (Codex).
 
-It also understands standalone OpenAI Responses API and Chat Completions JSONL
-records when you point `--dir` at a readable export/log directory. The current
-macOS ChatGPT desktop conversation cache is opaque `.data` storage rather than
-plain JSONL usage records, so tycho does not scan that cache by default.
+Claude roots parse only Claude's `assistant` records; Codex roots parse only
+Codex's token-count records. `--dir <PATH>` (repeatable) replaces the default
+roots entirely with your own directories, tagged `External`; those are
+format-sniffed line by line — tycho tries the Claude shape, then Codex's, then
+falls back to a standalone OpenAI Responses API or Chat Completions record,
+gated only on a top-level `usage` object being present. Because that gate
+doesn't check for OpenAI-specific fields, a `--dir` directory should contain
+only usage logs: any foreign JSONL line that happens to carry a `usage` object
+is counted as an event. The current macOS ChatGPT desktop conversation cache
+is opaque `.data` storage rather than plain JSONL usage records, so tycho does
+not scan that cache by default — point `--dir` at an actual export/log
+directory instead.
 
 `tycho` streams each file, collapses duplicate streaming records, and
 aggregates. A full scan of 500 MB takes well under a second on an Apple
@@ -178,9 +192,14 @@ only meaningful for old transcripts or custom logs that include recorded cost).
 - OpenAI subscription-plan usage is not the same as API invoicing. Built-in
   OpenAI prices estimate API-equivalent token cost; override pricing for long
   context, Batch, Flex, Priority, data residency, or workspace-specific rates.
-- Historical/private Codex labels and local model ids that have no public API
-  rate are explicitly priced at $0 to avoid noisy warnings. Override them if
-  your account bills those labels differently.
+- Historical/private Codex labels with no public API rate are explicitly
+  priced at $0 to avoid noisy warnings; `doctor` lists them separately as
+  "Zero-rated models" rather than mixing them in with genuinely unpriced
+  models. Override them at `~/.config/tycho/pricing.toml` if your account
+  bills those labels differently.
+- Ollama-style local model ids (`name:tag`) carry no pricing entry at all;
+  `doctor` lists them separately as "Local models" instead of warning about
+  them every run.
 
 ## Privacy
 

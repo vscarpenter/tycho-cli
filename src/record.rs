@@ -49,8 +49,11 @@ pub struct UsageEvent {
     pub timestamp: DateTime<Utc>,
     /// Session UUID; subagent transcripts carry the parent session's id.
     pub session_id: Option<String>,
-    /// Encoded project directory the transcript was found under. Empty at
-    /// parse time; the scan pipeline fills it from the file's location.
+    /// Encoded project directory the transcript was found under. Codex
+    /// events carry their own project from `payload.cwd` when a context
+    /// record supplied one; every other event (Claude, OpenAI, and Codex
+    /// events with no captured cwd) starts empty and the scan pipeline
+    /// backfills it from the file's location.
     pub project: String,
     /// Model id, e.g. `claude-opus-4-8`.
     pub model: String,
