@@ -15,7 +15,7 @@
 # own rates (e.g. a future gpt-5.5-codex) still need explicit entries —
 # a bare "gpt-5.5" entry would otherwise price them at API rates.
 #
-# OpenAI rates were verified 2026-07-08 against
+# OpenAI rates were verified 2026-07-12 against
 # https://developers.openai.com/api/docs/pricing. They use Standard API rates.
 # For models with separate short/long-context rows, these defaults use the
 # short-context row; override them if your logs should be billed at long-context,
@@ -77,6 +77,27 @@ input = 1.0
 output = 5.0
 cache_write_5m = 1.25
 cache_write_1h = 2.0
+cache_read = 0.1
+
+[models."gpt-5.6-sol"]
+input = 5.0
+output = 30.0
+cache_write_5m = 5.0
+cache_write_1h = 5.0
+cache_read = 0.5
+
+[models."gpt-5.6-terra"]
+input = 2.5
+output = 15.0
+cache_write_5m = 2.5
+cache_write_1h = 2.5
+cache_read = 0.25
+
+[models."gpt-5.6-luna"]
+input = 1.0
+output = 6.0
+cache_write_5m = 1.0
+cache_write_1h = 1.0
 cache_read = 0.1
 
 [models."gpt-5.5-pro"]

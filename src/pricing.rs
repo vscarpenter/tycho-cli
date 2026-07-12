@@ -116,6 +116,9 @@ mod tests {
             "claude-sonnet-5",
             "claude-sonnet-4-6",
             "claude-haiku-4-5-20251001", // dated id resolves via prefix
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
             "gpt-5.5",
             "gpt-5.5-pro",
             "gpt-5.4-mini",
@@ -142,6 +145,10 @@ mod tests {
         assert_eq!(gpt.cache_read, dec("0.5"));
         let pro = table.lookup("gpt-5.5-pro").unwrap();
         assert_eq!(pro.input, dec("30"));
+        let luna = table.lookup("gpt-5.6-luna").unwrap();
+        assert_eq!(luna.input, dec("1"));
+        assert_eq!(luna.output, dec("6"));
+        assert_eq!(luna.cache_read, dec("0.1"));
         // gpt-5.1-codex-max has no stanza of its own; it resolves via the
         // '-' boundary onto gpt-5.1-codex, which is zero-rated.
         let legacy = table.lookup("gpt-5.1-codex-max").unwrap();
