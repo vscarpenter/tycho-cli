@@ -154,6 +154,19 @@ with the provider that owns its layout:
 - Codex rollouts for archived threads, under `$CODEX_HOME/archived_sessions`
   or `~/.codex/archived_sessions` (Codex).
 
+Claude Code resolves its config directory from the running environment's home
+(`CLAUDE_CONFIG_DIR`, else `~/.claude`) with no platform-specific branch, so
+Windows uses `%USERPROFILE%\.claude\projects` and the Claude desktop app's
+locally-run sessions land in the same place as the CLI's. Under WSL, though,
+`claude` on Windows and `claude` in the distro keep *separate* stores; a
+Linux-native tycho sees only the distro's. `doctor` prints an "Unscanned
+(WSL)" row when it spots a Windows-side store under `/mnt`, which you can
+then include via `CLAUDE_CONFIG_DIR`:
+
+```
+CLAUDE_CONFIG_DIR=$HOME/.claude,/mnt/c/Users/<you>/.claude tycho
+```
+
 Claude roots parse only Claude's `assistant` records; Codex roots parse only
 Codex's token-count records. `--dir <PATH>` (repeatable) replaces the default
 roots entirely with your own directories, tagged `External`; those are

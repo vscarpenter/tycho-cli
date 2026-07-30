@@ -63,7 +63,10 @@ pub fn default_roots(
             .filter(|entry| !entry.is_empty())
             .map(|entry| Path::new(entry).join("projects"))
             .collect(),
-        None => vec![home.join(".claude/projects")],
+        // Joined per component so Windows renders native separators: a
+        // single join(".claude/projects") resolves fine but prints as
+        // `C:\Users\x\.claude/projects`, which reads like a bug in `doctor`.
+        None => vec![home.join(".claude").join("projects")],
     };
     let mut roots: Vec<SearchRoot> = claude_paths
         .into_iter()
@@ -73,7 +76,9 @@ pub fn default_roots(
         })
         .collect();
     roots.push(SearchRoot {
-        path: home.join("Library/Developer/Xcode/CodingAssistant/ClaudeAgentConfig/projects"),
+        path: ["Library", "Developer", "Xcode", "CodingAssistant", "ClaudeAgentConfig", "projects"]
+            .iter()
+            .fold(home.to_path_buf(), |path, segment| path.join(segment)),
         provider: Provider::Claude,
     });
     let codex_base = codex_home
@@ -88,6 +93,65 @@ pub fn default_roots(
         });
     }
     roots
+}
+
+/// Windows profile directories that never belong to a real user, so a
+/// `.claude` under them would not be a person's transcript store.
+const RESERVED_WINDOWS_PROFILES: [&str; 4] = ["Public", "Default", "Default User", "All Users"];
+
+/// Whether this process is running inside WSL, judged from
+/// `/proc/sys/kernel/osrelease` and `WSL_DISTRO_NAME`. Pure so the decision
+/// is testable without a WSL machine.
+pub fn is_wsl(osrelease: Option<&str>, wsl_distro_name: Option<&str>) -> bool {
+    if wsl_distro_name.is_some_and(|name| !name.trim().is_empty()) {
+        return true;
+    }
+    osrelease.is_some_and(|release| {
+        let release = release.to_ascii_lowercase();
+        release.contains("microsoft") || release.contains("wsl")
+    })
+}
+
+/// Claude Code project roots belonging to *Windows* user profiles, as seen
+/// from inside WSL, that are not already being scanned.
+///
+/// Claude Code resolves its config directory from the running environment's
+/// home — `CLAUDE_CONFIG_DIR`, else `homedir()/.claude`, with no
+/// platform-specific branch — so running `claude` on Windows and again inside
+/// WSL produces two independent transcript stores. A Linux-native tycho only
+/// sees the WSL one. The Windows one is reachable through the
+/// `/mnt/<drive>/Users` interop mount, but it is not a default root and its
+/// spend would otherwise be invisible with no indication anything was missed.
+///
+/// `mnt` is a parameter rather than a hardcoded `/mnt` so the walk is
+/// testable on any platform.
+pub fn windows_claude_roots(mnt: &Path, scanned: &[SearchRoot]) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(drives) = std::fs::read_dir(mnt) else {
+        return found;
+    };
+    for drive in drives.filter_map(Result::ok) {
+        let Ok(profiles) = std::fs::read_dir(drive.path().join("Users")) else {
+            continue;
+        };
+        for profile in profiles.filter_map(Result::ok) {
+            let name = profile.file_name();
+            let name = name.to_string_lossy();
+            if RESERVED_WINDOWS_PROFILES
+                .iter()
+                .any(|reserved| reserved.eq_ignore_ascii_case(&name))
+            {
+                continue;
+            }
+            let candidate = profile.path().join(".claude").join("projects");
+            if candidate.is_dir() && !scanned.iter().any(|root| root.path == candidate) {
+                found.push(candidate);
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// Recursively find every `*.jsonl` file under the given roots.
@@ -270,6 +334,38 @@ mod tests {
         );
     }
 
+    /// On Unix a single `join("a/b")` and `join("a").join("b")` compare
+    /// equal, so the equality tests above cannot catch a regression here —
+    /// only the component structure can. A path built with an embedded `/`
+    /// still *resolves* on Windows but prints with mixed separators.
+    #[test]
+    fn default_roots_are_built_one_component_at_a_time() {
+        let roots = default_roots(Path::new("/Users/v"), None, None);
+        // Only Normal components: the root/prefix component is legitimately
+        // the separator itself ("/" on Unix, "C:\" on Windows).
+        for root in &roots {
+            for component in root.path.components() {
+                let std::path::Component::Normal(text) = component else {
+                    continue;
+                };
+                let text = text.to_string_lossy();
+                assert!(
+                    !text.contains('/') && !text.contains('\\'),
+                    "component {text:?} in {:?} embeds a separator",
+                    root.path
+                );
+            }
+        }
+        let tail: Vec<_> = roots[0]
+            .path
+            .components()
+            .rev()
+            .take(2)
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(tail, vec!["projects".to_owned(), ".claude".to_owned()]);
+    }
+
     #[test]
     fn default_roots_with_config_dir_replaces_home_claude() {
         let roots = default_roots(
@@ -340,6 +436,51 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].project, "(codex)");
         assert_eq!(found[0].provider, Provider::Codex);
+    }
+
+    #[test]
+    fn wsl_is_detected_from_osrelease_or_distro_name() {
+        assert!(is_wsl(Some("5.15.153.1-microsoft-standard-WSL2"), None));
+        assert!(is_wsl(Some("6.6.0-MICROSOFT-standard"), None)); // case-insensitive
+        assert!(is_wsl(None, Some("Ubuntu-24.04")));
+        assert!(!is_wsl(Some("6.8.0-45-generic"), None)); // ordinary Linux
+        assert!(!is_wsl(None, None));
+        assert!(!is_wsl(None, Some("   "))); // set-but-empty is not WSL
+    }
+
+    /// Build a fake `/mnt` interop tree: one real profile with transcripts,
+    /// one reserved profile that must be ignored, and one profile with no
+    /// `.claude` at all.
+    fn wsl_mnt_fixture() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for profile in ["vinny", "Public"] {
+            fs::create_dir_all(dir.path().join("c/Users").join(profile).join(".claude/projects"))
+                .unwrap();
+        }
+        fs::create_dir_all(dir.path().join("c/Users/no-claude")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn windows_profiles_visible_from_wsl_are_reported() {
+        let mnt = wsl_mnt_fixture();
+        let found = windows_claude_roots(mnt.path(), &[]);
+        assert_eq!(found, vec![mnt.path().join("c/Users/vinny/.claude/projects")]);
+    }
+
+    #[test]
+    fn windows_roots_already_scanned_are_not_reported_again() {
+        let mnt = wsl_mnt_fixture();
+        let scanned = [SearchRoot {
+            path: mnt.path().join("c/Users/vinny/.claude/projects"),
+            provider: Provider::Claude,
+        }];
+        assert!(windows_claude_roots(mnt.path(), &scanned).is_empty());
+    }
+
+    #[test]
+    fn missing_mnt_is_not_an_error() {
+        assert!(windows_claude_roots(Path::new("/definitely/not/a/mount"), &[]).is_empty());
     }
 
     #[test]

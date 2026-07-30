@@ -325,6 +325,21 @@ pub fn doctor(report: &DoctorReport) -> String {
         report.local_models.join("\n")
     };
     table.add_row(vec!["Local models".to_owned(), local]);
+    // Only rendered inside WSL, where a second Claude Code install writes to
+    // the Windows profile. Everywhere else the row would be permanent noise.
+    if !report.unscanned_windows_roots.is_empty() {
+        let mut value: Vec<String> = report
+            .unscanned_windows_roots
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        value.push(String::new());
+        value.push(
+            "Windows-side Claude Code transcripts, not counted. To include them,".to_owned(),
+        );
+        value.push("add their .claude dirs to CLAUDE_CONFIG_DIR (comma-separated).".to_owned());
+        table.add_row(vec!["Unscanned (WSL)".to_owned(), value.join("\n")]);
+    }
     table.to_string()
 }
 
@@ -598,6 +613,7 @@ mod tests {
             unpriced_models: vec!["mystery-model".into()],
             zero_rated_models: vec!["gpt-5.2-codex".into()],
             local_models: vec!["qwen3.6:27b".into()],
+            unscanned_windows_roots: Vec::new(),
         };
         let rendered = doctor(&report);
         assert!(rendered.contains("/home/v/.claude/projects"));
@@ -613,6 +629,21 @@ mod tests {
         assert!(rendered.contains("gpt-5.2-codex"));
         assert!(rendered.contains("Local models"));
         assert!(rendered.contains("qwen3.6:27b"));
+        assert!(
+            !rendered.contains("Unscanned (WSL)"),
+            "WSL row must stay hidden when there is nothing to report:\n{rendered}"
+        );
+
+        // Same report with a Windows-side root: the row appears and names
+        // the remedy, so the hint is actionable without consulting the docs.
+        let with_hint = DoctorReport {
+            unscanned_windows_roots: vec!["/mnt/c/Users/v/.claude/projects".into()],
+            ..report
+        };
+        let rendered = doctor(&with_hint);
+        assert!(rendered.contains("Unscanned (WSL)"));
+        assert!(rendered.contains("/mnt/c/Users/v/.claude/projects"));
+        assert!(rendered.contains("CLAUDE_CONFIG_DIR"));
     }
 
     #[test]

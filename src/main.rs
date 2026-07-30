@@ -135,6 +135,22 @@ fn resolve_roots(cli: &Cli) -> anyhow::Result<Vec<SearchRoot>> {
     ))
 }
 
+/// Windows-side Claude Code roots that this process can see but is not
+/// scanning. Only ever non-empty inside WSL, where `claude` run on Windows
+/// and `claude` run in the distro keep separate transcript stores; the
+/// Windows one shows up under the `/mnt/<drive>/Users` interop mount.
+fn unscanned_windows_roots(roots: &[discover::SearchRoot]) -> Vec<std::path::PathBuf> {
+    if !cfg!(target_os = "linux") {
+        return Vec::new();
+    }
+    let osrelease = std::fs::read_to_string("/proc/sys/kernel/osrelease").ok();
+    let distro = std::env::var("WSL_DISTRO_NAME").ok();
+    if !discover::is_wsl(osrelease.as_deref(), distro.as_deref()) {
+        return Vec::new();
+    }
+    discover::windows_claude_roots(std::path::Path::new("/mnt"), roots)
+}
+
 /// Embedded defaults, then the user's config-dir table, then `--pricing`,
 /// each merging per model over the previous layer.
 fn resolve_pricing(cli: &Cli) -> anyhow::Result<PricingTable> {
@@ -229,7 +245,14 @@ fn render(
         }
         Command::Doctor => {
             reject_csv(global.csv);
-            let report = scan::doctor(roots, &outcome, unpriced, zero_rated, local);
+            let report = scan::doctor(
+                roots,
+                &outcome,
+                unpriced,
+                zero_rated,
+                local,
+                unscanned_windows_roots(roots),
+            );
             if global.json {
                 json::doctor(&report)
             } else {

@@ -317,6 +317,8 @@ struct DoctorOut {
     unpriced_models: Vec<String>,
     zero_rated_models: Vec<String>,
     local_models: Vec<String>,
+    /// Always present (empty off WSL) so the contract stays stable.
+    unscanned_windows_roots: Vec<String>,
 }
 
 /// Render the doctor data-health report as pretty-printed JSON.
@@ -357,6 +359,11 @@ pub fn doctor(report: &DoctorReport) -> String {
         unpriced_models: report.unpriced_models.clone(),
         zero_rated_models: report.zero_rated_models.clone(),
         local_models: report.local_models.clone(),
+        unscanned_windows_roots: report
+            .unscanned_windows_roots
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect(),
     };
     to_json(&out)
 }
@@ -766,6 +773,7 @@ mod tests {
             unpriced_models: vec!["mystery-model".into()],
             zero_rated_models: vec!["gpt-5.2-codex".into()],
             local_models: vec!["qwen3.6:27b".into()],
+            unscanned_windows_roots: vec!["/mnt/c/Users/v/.claude/projects".into()],
         };
         let value: serde_json::Value = serde_json::from_str(&doctor(&report)).unwrap();
         assert_eq!(value["command"], "doctor");
@@ -777,5 +785,9 @@ mod tests {
         assert_eq!(value["models"][0], "m1");
         assert_eq!(value["zero_rated_models"][0], "gpt-5.2-codex");
         assert_eq!(value["local_models"][0], "qwen3.6:27b");
+        assert_eq!(
+            value["unscanned_windows_roots"][0],
+            "/mnt/c/Users/v/.claude/projects"
+        );
     }
 }

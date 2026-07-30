@@ -164,6 +164,9 @@ pub struct DoctorReport {
     /// Observed Ollama-style `name:tag` models with no pricing entry,
     /// sorted.
     pub local_models: Vec<String>,
+    /// Windows-side Claude Code roots visible from WSL that are not being
+    /// scanned. Empty everywhere except inside WSL.
+    pub unscanned_windows_roots: Vec<PathBuf>,
 }
 
 /// Assemble the doctor report from a finished scan. Filters that were
@@ -179,6 +182,7 @@ pub fn doctor(
     unpriced_models: Vec<String>,
     zero_rated_models: Vec<String>,
     local_models: Vec<String>,
+    unscanned_windows_roots: Vec<PathBuf>,
 ) -> DoctorReport {
     let date_span = outcome
         .events
@@ -210,6 +214,7 @@ pub fn doctor(
         unpriced_models,
         zero_rated_models,
         local_models,
+        unscanned_windows_roots,
     }
 }
 
@@ -398,6 +403,7 @@ mod tests {
             vec!["mystery-model".into()],
             vec!["gpt-5.2-codex".into()],
             vec!["qwen3.6:27b".into()],
+            Vec::new(),
         );
 
         assert_eq!(report.roots.len(), 2);
