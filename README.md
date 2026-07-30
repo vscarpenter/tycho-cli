@@ -195,6 +195,10 @@ only meaningful for old transcripts or custom logs that include recorded cost).
 - Claude Code prunes old transcripts based on its `cleanupPeriodDays`
   setting, and Codex/ChatGPT local retention can also change, so history has a
   horizon. `tycho doctor` prints the observed date span.
+- Claude fast mode bills at a premium ($10/$50 per million on `claude-opus-5`
+  vs. the standard $5/$25) but records the same model id, so tycho can't tell
+  the two apart. Override the model if your usage is predominantly fast mode.
+  `claude-sonnet-5` is priced at its introductory rate, which ends 2026-08-31.
 - OpenAI subscription-plan usage is not the same as API invoicing. Built-in
   OpenAI prices estimate API-equivalent token cost; override pricing for long
   context, Batch, Flex, Priority, data residency, or workspace-specific rates.

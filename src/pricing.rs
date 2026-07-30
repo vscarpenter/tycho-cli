@@ -111,6 +111,8 @@ mod tests {
         let table = PricingTable::embedded();
         for model in [
             "claude-fable-5",
+            "claude-mythos-5",
+            "claude-opus-5",
             "claude-opus-4-8",
             "claude-opus-4-7",
             "claude-sonnet-5",
@@ -139,6 +141,18 @@ mod tests {
         assert_eq!(opus.cache_write_5m, dec("6.25"));
         assert_eq!(opus.cache_write_1h, dec("10"));
         assert_eq!(opus.cache_read, dec("0.5"));
+        // A new major version is never a prefix of the prior one, so
+        // claude-opus-5 needs its own stanza rather than inheriting 4.8's.
+        let opus5 = table.lookup("claude-opus-5").unwrap();
+        assert_eq!(opus5.input, dec("5"));
+        assert_eq!(opus5.output, dec("25"));
+        assert_eq!(opus5.cache_write_5m, dec("6.25"));
+        assert_eq!(opus5.cache_write_1h, dec("10"));
+        assert_eq!(opus5.cache_read, dec("0.5"));
+        let mythos = table.lookup("claude-mythos-5").unwrap();
+        assert_eq!(mythos.input, dec("10"));
+        assert_eq!(mythos.output, dec("50"));
+        assert_eq!(mythos.cache_read, dec("1"));
         let gpt = table.lookup("gpt-5.5").unwrap();
         assert_eq!(gpt.input, dec("5"));
         assert_eq!(gpt.output, dec("30"));
@@ -163,6 +177,8 @@ mod tests {
     fn lookup_requires_a_dash_boundary() {
         let table = PricingTable::embedded();
         assert!(table.lookup("claude-opus-4-8-20270101").is_some()); // dated id, '-' boundary
+        assert!(table.lookup("claude-opus-5-20270101").is_some()); // dated id, '-' boundary
+        assert!(table.lookup("claude-opus-50").is_none()); // no boundary: must not match claude-opus-5
         assert!(table.lookup("gpt-5.41").is_none()); // no boundary: must not match gpt-5.4
         assert!(table.lookup("gpt-5.1-codex-max").is_some()); // '-' boundary onto gpt-5.1-codex
         assert!(table.lookup("codex-unknown").is_some());
