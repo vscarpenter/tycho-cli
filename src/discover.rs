@@ -46,8 +46,11 @@ pub struct TranscriptFile {
 /// `<entry>/projects`. The macOS Xcode bonus location is always appended —
 /// it is independent of the config dir and simply absent on other machines.
 ///
-/// When `codex_home` is set it contributes `<CODEX_HOME>/sessions`; otherwise
-/// `~/.codex/sessions` is used.
+/// Codex contributes two roots, both under `<CODEX_HOME>` when set and
+/// `~/.codex` otherwise: `sessions` for live rollouts and
+/// `archived_sessions`, where Codex moves a rollout when its thread is
+/// archived. The archived file keeps the same name and record shape, so
+/// omitting that root would silently drop the spend it recorded.
 pub fn default_roots(
     home: &Path,
     claude_config_dir: Option<&str>,
@@ -78,10 +81,12 @@ pub fn default_roots(
         .filter(|entry| !entry.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".codex"));
-    roots.push(SearchRoot {
-        path: codex_base.join("sessions"),
-        provider: Provider::Codex,
-    });
+    for dir in ["sessions", "archived_sessions"] {
+        roots.push(SearchRoot {
+            path: codex_base.join(dir),
+            provider: Provider::Codex,
+        });
+    }
     roots
 }
 
@@ -257,6 +262,10 @@ mod tests {
                     path: PathBuf::from("/Users/v/.codex/sessions"),
                     provider: Provider::Codex
                 },
+                SearchRoot {
+                    path: PathBuf::from("/Users/v/.codex/archived_sessions"),
+                    provider: Provider::Codex
+                },
             ]
         );
     }
@@ -289,21 +298,48 @@ mod tests {
                     path: PathBuf::from("/codex/sessions"),
                     provider: Provider::Codex
                 },
+                SearchRoot {
+                    path: PathBuf::from("/codex/archived_sessions"),
+                    provider: Provider::Codex
+                },
             ]
         );
     }
 
     #[test]
     fn empty_codex_home_falls_back_to_home_codex() {
-        // A set-but-empty CODEX_HOME must not yield a relative "sessions" root.
+        // A set-but-empty CODEX_HOME must not yield relative "sessions" or
+        // "archived_sessions" roots.
         for value in ["", "   "] {
             let roots = default_roots(Path::new("/Users/v"), None, Some(value));
-            assert!(
-                roots
-                    .iter()
-                    .any(|r| r.path == Path::new("/Users/v/.codex/sessions"))
-            );
+            for expected in [
+                "/Users/v/.codex/sessions",
+                "/Users/v/.codex/archived_sessions",
+            ] {
+                assert!(roots.iter().any(|r| r.path == Path::new(expected)));
+            }
         }
+    }
+
+    /// Codex moves completed rollouts out of `sessions/` when a thread is
+    /// archived; the file keeps its name and shape, so missing this root
+    /// silently drops that spend from every report.
+    #[test]
+    fn archived_codex_rollouts_are_discovered_like_live_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path()
+                .join("rollout-2026-05-07T13-19-01-019e03aa-1ec7.jsonl"),
+            "{}\n",
+        )
+        .unwrap();
+        let found = discover(&[SearchRoot {
+            path: dir.path().to_path_buf(),
+            provider: Provider::Codex,
+        }]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].project, "(codex)");
+        assert_eq!(found[0].provider, Provider::Codex);
     }
 
     #[test]

@@ -21,7 +21,7 @@ line is sniffed:
 | Root provider | Default roots | What gets parsed |
 |---|---|---|
 | `Claude` | `~/.claude/projects` (+ `CLAUDE_CONFIG_DIR` entries), the Xcode `CodingAssistant` location | Only `assistant` records |
-| `Codex` | `$CODEX_HOME/sessions`, or `~/.codex/sessions` when unset/empty | Only `event_msg` records where `payload.type == "token_count"` |
+| `Codex` | `sessions` and `archived_sessions` under `$CODEX_HOME`, or under `~/.codex` when unset/empty | Only `event_msg` records where `payload.type == "token_count"` |
 | `External` | Any `--dir <PATH>` (repeatable; replaces the default roots entirely) | Format-sniffed per line: try the Claude `assistant` shape, then the Codex envelope, then a standalone OpenAI record — gated only on a top-level `usage` object being present |
 
 Under an `External` root the parser tries the Claude and Codex shapes first,
@@ -68,6 +68,18 @@ Codex writes JSONL sessions under:
 ~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-<timestamp>-<session-id>.jsonl
 $CODEX_HOME/sessions/<yyyy>/<mm>/<dd>/rollout-<timestamp>-<session-id>.jsonl
 ```
+
+Archiving a thread moves its rollout to a sibling directory, flat rather than
+date-sharded, with the filename and record shape unchanged:
+
+```
+~/.codex/archived_sessions/rollout-<timestamp>-<session-id>.jsonl
+$CODEX_HOME/archived_sessions/rollout-<timestamp>-<session-id>.jsonl
+```
+
+Both are default roots. Discovery is a recursive `*.jsonl` walk either way, so
+the flat layout needs no special handling — but the root must be listed, or
+archiving a thread silently removes its spend from every report.
 
 The first path components are dates, not projects, so project filtering must
 be event-level. Codex carries the real project in `payload.cwd` on

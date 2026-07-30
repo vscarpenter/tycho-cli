@@ -151,6 +151,8 @@ with the provider that owns its layout:
 - Xcode's `CodingAssistant` Claude location on macOS (Claude).
 - Codex JSONL session logs under `$CODEX_HOME/sessions` or
   `~/.codex/sessions` (Codex).
+- Codex rollouts for archived threads, under `$CODEX_HOME/archived_sessions`
+  or `~/.codex/archived_sessions` (Codex).
 
 Claude roots parse only Claude's `assistant` records; Codex roots parse only
 Codex's token-count records. `--dir <PATH>` (repeatable) replaces the default
