@@ -83,7 +83,49 @@
   discovers once and reuses the list for both mtimes and parsing.
 - Design/plan under `docs/superpowers/{specs,plans}/2026-07-04-live-*`.
 
-## Resuming from here
+## Cost truthfulness (2026-08-09) — done, unreleased
+
+Prompted by a tycho-vs-ccusage reconciliation. tycho was correct everywhere
+the two disagreed (Codex coverage, streaming-dedup tie-break, 1h cache
+pricing); the investigation surfaced three places tycho itself lost data it
+had already parsed. Spec + plan under
+`docs/superpowers/{specs,plans}/2026-08-09-cost-truthfulness*`.
+
+- [x] Codex model backfill (`30818c8`) — token_count before turn_context kept
+      the zero-rated `codex-unknown` placeholder. Backfills from the file's
+      first turn_context; counted as "Codex models backfilled" in doctor.
+      Real corpus: 3,360 events, bucket 434,311,580 → 27,380,832 tokens,
+      **+$311.28** previously priced at $0. Historical totals now increase.
+- [x] Cache TTL split (`8c6c855`) — `cache` gains Write 5m / Write 1h columns
+      and a premium sentence. Real corpus: 72.8% of writes use the 1h TTL,
+      costing $335.02 over the 5m rate. Added `cache_contract` JSON test, which
+      the module had never had.
+- [x] Shadow estimates (`bb7b036`) — `[shadow]` section maps zero-rated ids to
+      a priced reference; doctor reports unpriced tokens + estimate. Real
+      corpus: 419,779,330 tokens across 6 models, $176.64. Diagnostic only.
+- [x] `4b9eefa` is unrelated rustfmt 1.9.0 drift that already failed at HEAD,
+      split out so the feature commits stay clean.
+
+191 tests, fmt + clippy(-D warnings) green at every commit. Not released:
+no version bump, no tag.
+
+### Resuming from here
+
+- **Next if releasing:** bump version, tag `vX.Y.Z`. The backfill changes
+  historical totals, so call that out in the release notes — README accuracy
+  caveats already warn about it.
+- **Deferred by design (see spec "Out of scope"):** a global `--shadow` flag
+  exposing the estimate on daily/monthly/models; a `tycho audit` command;
+  broader local-LLM support (already handled — 0.011% of the corpus and
+  genuinely free).
+- **Open question worth revisiting:** `[shadow]` maps the legacy codex labels
+  to `gpt-5.4` as the same-generation priced model. That choice is a judgment
+  call, not a fact; revisit if those labels turn out to bill differently.
+- **Unchanged pre-existing item:** `rust-toolchain.toml` pins `channel =
+  "stable"` rather than a version, which is what let rustfmt drift in. Pinning
+  it would prevent a repeat.
+
+## Resuming from here (v1, superseded by the section above)
 
 - v1 definition of done (§13) was met at the Phase 3 gate; Phase 4 (live)
   is complete pending Vinny's gate review.
