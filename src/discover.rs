@@ -76,9 +76,16 @@ pub fn default_roots(
         })
         .collect();
     roots.push(SearchRoot {
-        path: ["Library", "Developer", "Xcode", "CodingAssistant", "ClaudeAgentConfig", "projects"]
-            .iter()
-            .fold(home.to_path_buf(), |path, segment| path.join(segment)),
+        path: [
+            "Library",
+            "Developer",
+            "Xcode",
+            "CodingAssistant",
+            "ClaudeAgentConfig",
+            "projects",
+        ]
+        .iter()
+        .fold(home.to_path_buf(), |path, segment| path.join(segment)),
         provider: Provider::Claude,
     });
     let codex_base = codex_home
@@ -454,8 +461,13 @@ mod tests {
     fn wsl_mnt_fixture() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         for profile in ["vinny", "Public"] {
-            fs::create_dir_all(dir.path().join("c/Users").join(profile).join(".claude/projects"))
-                .unwrap();
+            fs::create_dir_all(
+                dir.path()
+                    .join("c/Users")
+                    .join(profile)
+                    .join(".claude/projects"),
+            )
+            .unwrap();
         }
         fs::create_dir_all(dir.path().join("c/Users/no-claude")).unwrap();
         dir
@@ -465,7 +477,10 @@ mod tests {
     fn windows_profiles_visible_from_wsl_are_reported() {
         let mnt = wsl_mnt_fixture();
         let found = windows_claude_roots(mnt.path(), &[]);
-        assert_eq!(found, vec![mnt.path().join("c/Users/vinny/.claude/projects")]);
+        assert_eq!(
+            found,
+            vec![mnt.path().join("c/Users/vinny/.claude/projects")]
+        );
     }
 
     #[test]
