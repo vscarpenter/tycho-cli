@@ -208,6 +208,7 @@ mod tests {
                 counterfactual_cost: "1.08".parse().unwrap(),
                 savings: "0.44".parse().unwrap(),
                 leverage: Some("1.68".parse().unwrap()),
+                ttl_premium: "0.02".parse().unwrap(),
             },
             burn: BurnRate {
                 tokens_per_min: 12.0,

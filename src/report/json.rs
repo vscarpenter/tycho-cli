@@ -237,6 +237,9 @@ struct CacheRowOut {
     counterfactual_cost_usd: f64,
     savings_usd: f64,
     leverage: Option<f64>,
+    /// Extra cost from 1-hour cache writes over the 5-minute rate. The
+    /// token split itself is already in `tokens.cache_write_{5m,1h}`.
+    ttl_premium_usd: f64,
 }
 
 impl From<&crate::cache::CacheEconomics> for CacheRowOut {
@@ -250,6 +253,7 @@ impl From<&crate::cache::CacheEconomics> for CacheRowOut {
             counterfactual_cost_usd: row.counterfactual_cost.to_f64().unwrap_or(0.0),
             savings_usd: row.savings.to_f64().unwrap_or(0.0),
             leverage: row.leverage.and_then(|l| l.to_f64()),
+            ttl_premium_usd: row.ttl_premium.to_f64().unwrap_or(0.0),
         }
     }
 }
@@ -670,6 +674,7 @@ mod tests {
                 counterfactual_cost: "1.08".parse().unwrap(),
                 savings: "0.44".parse().unwrap(),
                 leverage: Some("1.68".parse().unwrap()),
+                ttl_premium: "0.02".parse().unwrap(),
             },
             burn: BurnRate {
                 tokens_per_min: 12.0,
@@ -746,6 +751,40 @@ mod tests {
         assert_eq!(b["projection"]["projected_cost_usd"], 6.0);
         assert_eq!(b["projection"]["remaining_seconds"], 9_600);
         assert_eq!(value["totals"]["total"], 300);
+    }
+
+    /// The cache report exposes the TTL split (already carried by `tokens`)
+    /// plus the premium those 1-hour writes cost.
+    #[test]
+    fn cache_contract() {
+        let row = crate::cache::CacheEconomics {
+            model: "claude-fable-5".into(),
+            totals: Totals {
+                cache_write_5m: 1_000_000,
+                cache_write_1h: 2_000_000,
+                cache_read: 500,
+                ..Totals::default()
+            },
+            hit_rate: Some("0.5".parse().unwrap()),
+            actual_cost: "1.0".parse().unwrap(),
+            counterfactual_cost: "2.0".parse().unwrap(),
+            savings: "1.0".parse().unwrap(),
+            leverage: Some("2.0".parse().unwrap()),
+            ttl_premium: "15.0".parse().unwrap(),
+        };
+        let report = crate::cache::CacheReport {
+            models: vec![row.clone()],
+            total: crate::cache::CacheEconomics {
+                model: "Total".into(),
+                ..row
+            },
+        };
+        let value: serde_json::Value = serde_json::from_str(&cache(&report, "UTC")).unwrap();
+        assert_eq!(value["command"], "cache");
+        assert_eq!(value["models"][0]["tokens"]["cache_write_5m"], 1_000_000);
+        assert_eq!(value["models"][0]["tokens"]["cache_write_1h"], 2_000_000);
+        assert_eq!(value["models"][0]["ttl_premium_usd"], 15.0);
+        assert_eq!(value["totals"]["ttl_premium_usd"], 15.0);
     }
 
     #[test]

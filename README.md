@@ -12,19 +12,27 @@ OpenAI JSONL usage records. Think `iostat` for AI spend.
 ![tycho demo: the daily, cache, and blocks reports](demo.gif)
 
 ```
-$ tycho cache
-Your effective cost was $3741.36. Without prompt caching it would have been $19510.97.
-Caching saved you $15769.62 (5.2x leverage).
+$ tycho cache --model claude
+Your effective cost was $3986.99. Without prompt caching it would have been $23751.08.
+Caching saved you $19764.08 (6.0x leverage).
+72.8% of your cache writes used the 1-hour TTL, costing $335.02 more than the 5-minute rate.
 
-┌───────────────────┬───────────────┬─────────────┬──────────┬─────────────┬───────────────┬───────────┬──────────┐
-│ Model             ┆ Cache Read    ┆ Cache Write ┆ Hit Rate ┆ Actual Cost ┆ No-Cache Cost ┆ Savings   ┆ Leverage │
-╞═══════════════════╪═══════════════╪═════════════╪══════════╪═════════════╪═══════════════╪═══════════╪══════════╡
-│ claude-opus-4-8   ┆ 1,882,805,783 ┆ 66,040,314  ┆ 96.4%    ┆ $1966.10    ┆ $10143.74     ┆ $8177.65  ┆ 5.2x     │
-│ claude-fable-5    ┆ 749,241,182   ┆ 30,597,036  ┆ 95.7%    ┆ $1589.18    ┆ $8134.27      ┆ $6545.09  ┆ 5.1x     │
-│ claude-sonnet-5   ┆ 518,361,906   ┆ 6,099,019   ┆ 98.7%    ┆ $135.57     ┆ $1061.00      ┆ $925.44   ┆ 7.8x     │
-│ Total             ┆ 3,207,875,363 ┆ 110,796,131 ┆ 96.4%    ┆ $3741.36    ┆ $19510.97     ┆ $15769.62 ┆ 5.2x     │
-└───────────────────┴───────────────┴─────────────┴──────────┴─────────────┴───────────────┴───────────┴──────────┘
+┌───────────────────────────┬───────────────┬────────────┬────────────┬──────────┬─────────────┬───────────────┬───────────┬──────────┐
+│ Model                     ┆ Cache Read    ┆ Write 5m   ┆ Write 1h   ┆ Hit Rate ┆ Actual Cost ┆ No-Cache Cost ┆ Savings   ┆ Leverage │
+╞═══════════════════════════╪═══════════════╪════════════╪════════════╪══════════╪═════════════╪═══════════════╪═══════════╪══════════╡
+│ claude-fable-5            ┆ 1,725,981,694 ┆ 12,273,214 ┆ 34,097,572 ┆ 97.4%    ┆ $3056.13    ┆ $18218.30     ┆ $15162.18 ┆ 6.0x     │
+│ claude-opus-5             ┆ 773,885,577   ┆ 1,080,620  ┆ 10,594,173 ┆ 98.5%    ┆ $562.57     ┆ $3990.74      ┆ $3428.16  ┆ 7.1x     │
+│ claude-opus-4-8           ┆ 157,197,715   ┆ 2,165,910  ┆ 8,396,743  ┆ 93.7%    ┆ $221.70     ┆ $884.40       ┆ $662.70   ┆ 4.0x     │
+│ claude-sonnet-5           ┆ 288,610,690   ┆ 4,539,956  ┆ 5,379,203  ┆ 96.7%    ┆ $114.76     ┆ $621.23       ┆ $506.47   ┆ 5.4x     │
+│ claude-sonnet-4-6         ┆ 1,723,659     ┆ 1,610,182  ┆ 0          ┆ 51.7%    ┆ $31.37      ┆ $34.82        ┆ $3.45     ┆ 1.1x     │
+│ claude-haiku-4-5-20251001 ┆ 1,303,985     ┆ 178,670    ┆ 0          ┆ 87.9%    ┆ $0.47       ┆ $1.60         ┆ $1.13     ┆ 3.4x     │
+│ Total                     ┆ 2,948,703,320 ┆ 21,848,552 ┆ 58,467,691 ┆ 97.3%    ┆ $3986.99    ┆ $23751.08     ┆ $19764.08 ┆ 6.0x     │
+└───────────────────────────┴───────────────┴────────────┴────────────┴──────────┴─────────────┴───────────────┴───────────┴──────────┘
 ```
+
+Cache writes are split by TTL because Anthropic bills a 1-hour write at 2x
+base input and a 5-minute write at 1.25x. The premium line above is what that
+choice cost over the cheaper rate.
 
 ## Install
 

@@ -31,6 +31,10 @@ pub struct CacheEconomics {
     pub savings: Decimal,
     /// `counterfactual / actual`; `None` when actual is zero.
     pub leverage: Option<Decimal>,
+    /// Extra cost incurred because cache writes used the 1-hour TTL instead
+    /// of the 5-minute one: `cache_write_1h * (rate_1h - rate_5m)`. Zero for
+    /// models with no rates.
+    pub ttl_premium: Decimal,
 }
 
 /// The `cache` report: one row per model, largest actual cost first, plus
@@ -69,7 +73,13 @@ pub fn cache(
     // The grand-total counterfactual is the sum of per-model counterfactuals
     // (each model has its own input rate), not a re-price of summed tokens.
     let counterfactual = models.iter().map(|m| m.counterfactual_cost).sum();
-    let total = with_counterfactual("Total".to_owned(), by_model.total, counterfactual);
+    let ttl_premium = models.iter().map(|m| m.ttl_premium).sum();
+    let total = with_counterfactual(
+        "Total".to_owned(),
+        by_model.total,
+        counterfactual,
+        ttl_premium,
+    );
 
     CacheReport { models, total }
 }
@@ -77,20 +87,31 @@ pub fn cache(
 /// Economics for one model's totals, pricing the counterfactual with that
 /// model's own rates (zero for unpriced models).
 fn economics(model: String, totals: Totals, table: &PricingTable) -> CacheEconomics {
-    let counterfactual = table
-        .lookup(&model)
+    let million = Decimal::from(1_000_000u32);
+    let rates = table.lookup(&model);
+    let counterfactual = rates
         .map(|rates| {
-            let million = Decimal::from(1_000_000u32);
             let all_input =
                 totals.input + totals.cache_write_5m + totals.cache_write_1h + totals.cache_read;
             Decimal::from(all_input) * rates.input / million
                 + Decimal::from(totals.output) * rates.output / million
         })
         .unwrap_or(Decimal::ZERO);
-    with_counterfactual(model, totals, counterfactual)
+    let ttl_premium = rates
+        .map(|rates| {
+            Decimal::from(totals.cache_write_1h) * (rates.cache_write_1h - rates.cache_write_5m)
+                / million
+        })
+        .unwrap_or(Decimal::ZERO);
+    with_counterfactual(model, totals, counterfactual, ttl_premium)
 }
 
-fn with_counterfactual(model: String, totals: Totals, counterfactual: Decimal) -> CacheEconomics {
+fn with_counterfactual(
+    model: String,
+    totals: Totals,
+    counterfactual: Decimal,
+    ttl_premium: Decimal,
+) -> CacheEconomics {
     let cacheable =
         totals.input + totals.cache_write_5m + totals.cache_write_1h + totals.cache_read;
     let hit_rate =
@@ -105,6 +126,7 @@ fn with_counterfactual(model: String, totals: Totals, counterfactual: Decimal) -
         counterfactual_cost: counterfactual,
         savings: counterfactual - actual,
         leverage,
+        ttl_premium,
     }
 }
 
@@ -161,6 +183,61 @@ mod tests {
         // leverage = 0.0108 / 0.0064125
         let leverage = opus.leverage.unwrap();
         assert!((leverage - dec("1.684")).abs() < dec("0.001"), "{leverage}");
+    }
+
+    /// The premium is what the 1-hour TTL cost over the 5-minute rate for
+    /// the same tokens: fable-5 is 20.0 vs 12.5, so 2M tokens owe
+    /// 2 * (20.0 - 12.5) = $15.
+    #[test]
+    fn ttl_premium_prices_1h_writes_against_the_5m_rate() {
+        let usage = TokenUsage {
+            cache_write_5m: 1_000_000,
+            cache_write_1h: 2_000_000,
+            ..TokenUsage::default()
+        };
+        let report = cache(
+            [event("claude-fable-5", usage, "0")],
+            chrono_tz::UTC,
+            None,
+            None,
+            &PricingTable::embedded(),
+        );
+        assert_eq!(report.models[0].ttl_premium, dec("15"));
+        assert_eq!(report.total.ttl_premium, dec("15"));
+    }
+
+    #[test]
+    fn ttl_premium_is_zero_without_1h_writes() {
+        let usage = TokenUsage {
+            cache_write_5m: 5_000_000,
+            ..TokenUsage::default()
+        };
+        let report = cache(
+            [event("claude-fable-5", usage, "0")],
+            chrono_tz::UTC,
+            None,
+            None,
+            &PricingTable::embedded(),
+        );
+        assert_eq!(report.models[0].ttl_premium, Decimal::ZERO);
+    }
+
+    /// Unpriced models contribute no premium rather than panicking, matching
+    /// how the counterfactual treats them.
+    #[test]
+    fn ttl_premium_is_zero_for_unpriced_models() {
+        let usage = TokenUsage {
+            cache_write_1h: 1_000_000,
+            ..TokenUsage::default()
+        };
+        let report = cache(
+            [event("qwen3.6:27b", usage, "0")],
+            chrono_tz::UTC,
+            None,
+            None,
+            &PricingTable::embedded(),
+        );
+        assert_eq!(report.models[0].ttl_premium, Decimal::ZERO);
     }
 
     #[test]

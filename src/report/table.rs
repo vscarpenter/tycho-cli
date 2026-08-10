@@ -193,7 +193,7 @@ pub fn models(report: &ModelsReport, precise: bool) -> String {
 /// per model plus the total.
 pub fn cache(report: &crate::cache::CacheReport, precise: bool) -> String {
     let total = &report.total;
-    let headline = match total.leverage {
+    let mut headline = match total.leverage {
         Some(leverage) => format!(
             "Your effective cost was {}. Without prompt caching it would have been {}.\nCaching saved you {} ({} leverage).\n",
             money(total.actual_cost, precise),
@@ -203,11 +203,23 @@ pub fn cache(report: &crate::cache::CacheReport, precise: bool) -> String {
         ),
         None => "No costed usage in this window.\n".to_owned(),
     };
+    // The guard also makes the divisor non-zero, so no separate check.
+    if total.totals.cache_write_1h > 0 {
+        let share = rust_decimal::Decimal::from(total.totals.cache_write_1h)
+            * rust_decimal::Decimal::from(100u8)
+            / rust_decimal::Decimal::from(cache_write(&total.totals));
+        headline.push_str(&format!(
+            "{}% of your cache writes used the 1-hour TTL, costing {} more than the 5-minute rate.\n",
+            share.round_dp_with_strategy(1, rust_decimal::RoundingStrategy::MidpointAwayFromZero),
+            money(total.ttl_premium, precise),
+        ));
+    }
 
     let mut table = new_table([
         "Model",
         "Cache Read",
-        "Cache Write",
+        "Write 5m",
+        "Write 1h",
         "Hit Rate",
         "Actual Cost",
         "No-Cache Cost",
@@ -218,7 +230,8 @@ pub fn cache(report: &crate::cache::CacheReport, precise: bool) -> String {
         table.add_row(vec![
             row.model.clone(),
             group_thousands(row.totals.cache_read),
-            group_thousands(cache_write(&row.totals)),
+            group_thousands(row.totals.cache_write_5m),
+            group_thousands(row.totals.cache_write_1h),
             percent(row.hit_rate),
             money(row.actual_cost, precise),
             money(row.counterfactual_cost, precise),
@@ -474,6 +487,57 @@ mod tests {
             "cache write = 5m + 1h:\n{rendered}"
         );
         assert!(rendered.contains("1,630,386"), "totals row:\n{rendered}");
+    }
+
+    /// A one-model cache report with the given write split and premium.
+    fn ttl_report(write_5m: u64, write_1h: u64, premium: &str) -> crate::cache::CacheReport {
+        let row = crate::cache::CacheEconomics {
+            model: "claude-fable-5".to_owned(),
+            totals: Totals {
+                cache_write_5m: write_5m,
+                cache_write_1h: write_1h,
+                cache_read: 1_000,
+                ..Totals::default()
+            },
+            hit_rate: None,
+            actual_cost: rust_decimal::Decimal::ONE,
+            counterfactual_cost: rust_decimal::Decimal::TWO,
+            savings: rust_decimal::Decimal::ONE,
+            leverage: Some(rust_decimal::Decimal::TWO),
+            ttl_premium: premium.parse().unwrap(),
+        };
+        crate::cache::CacheReport {
+            models: vec![row.clone()],
+            total: crate::cache::CacheEconomics {
+                model: "Total".to_owned(),
+                ..row
+            },
+        }
+    }
+
+    /// The single write column becomes two, and the narrative reports the
+    /// 1-hour share alongside what it cost.
+    #[test]
+    fn cache_table_splits_write_columns_and_reports_the_ttl_premium() {
+        let rendered = cache(&ttl_report(1_000_000, 3_000_000, "22.5"), false);
+        assert!(rendered.contains("Write 5m"), "{rendered}");
+        assert!(rendered.contains("Write 1h"), "{rendered}");
+        assert!(!rendered.contains("Cache Write"), "{rendered}");
+        // Decimal's Display trims trailing zeros, matching `percent` and
+        // `money` elsewhere in this module ("$0", not "$0.00").
+        assert!(
+            rendered.contains("75% of your cache writes used the 1-hour TTL"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("$22.5 more"), "{rendered}");
+    }
+
+    /// With no 1-hour writes there is no premium to report, so the sentence
+    /// is omitted rather than printing a $0.00 line.
+    #[test]
+    fn cache_table_omits_the_ttl_sentence_without_1h_writes() {
+        let rendered = cache(&ttl_report(1_000_000, 0, "0"), false);
+        assert!(!rendered.contains("1-hour TTL"), "{rendered}");
     }
 
     #[test]
