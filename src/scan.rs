@@ -164,6 +164,11 @@ pub struct DoctorReport {
     /// Observed Ollama-style `name:tag` models with no pricing entry,
     /// sorted.
     pub local_models: Vec<String>,
+    /// Tokens carrying no real rates, and what they would cost at the
+    /// pricing table's `[shadow]` reference rates. Computed by the cost
+    /// engine and passed in, like the three model lists above. Diagnostic
+    /// only — no report total includes it.
+    pub shadow: crate::cost::ShadowDiagnostic,
     /// Windows-side Claude Code roots visible from WSL that are not being
     /// scanned. Empty everywhere except inside WSL.
     pub unscanned_windows_roots: Vec<PathBuf>,
@@ -182,6 +187,7 @@ pub fn doctor(
     unpriced_models: Vec<String>,
     zero_rated_models: Vec<String>,
     local_models: Vec<String>,
+    shadow: crate::cost::ShadowDiagnostic,
     unscanned_windows_roots: Vec<PathBuf>,
 ) -> DoctorReport {
     let date_span = outcome
@@ -214,6 +220,7 @@ pub fn doctor(
         unpriced_models,
         zero_rated_models,
         local_models,
+        shadow,
         unscanned_windows_roots,
     }
 }
@@ -403,6 +410,7 @@ mod tests {
             vec!["mystery-model".into()],
             vec!["gpt-5.2-codex".into()],
             vec!["qwen3.6:27b".into()],
+            crate::cost::ShadowDiagnostic::default(),
             Vec::new(),
         );
 

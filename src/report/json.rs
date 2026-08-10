@@ -322,6 +322,9 @@ struct DoctorOut {
     unpriced_models: Vec<String>,
     zero_rated_models: Vec<String>,
     local_models: Vec<String>,
+    unpriced_tokens: u64,
+    shadow_estimate_usd: f64,
+    shadow_mappings: std::collections::BTreeMap<String, String>,
     /// Always present (empty off WSL) so the contract stays stable.
     unscanned_windows_roots: Vec<String>,
 }
@@ -365,6 +368,12 @@ pub fn doctor(report: &DoctorReport) -> String {
         unpriced_models: report.unpriced_models.clone(),
         zero_rated_models: report.zero_rated_models.clone(),
         local_models: report.local_models.clone(),
+        unpriced_tokens: report.shadow.tokens,
+        shadow_estimate_usd: {
+            use rust_decimal::prelude::ToPrimitive;
+            report.shadow.estimate.to_f64().unwrap_or(0.0)
+        },
+        shadow_mappings: report.shadow.mappings.clone(),
         unscanned_windows_roots: report
             .unscanned_windows_roots
             .iter()
@@ -815,6 +824,14 @@ mod tests {
             unpriced_models: vec!["mystery-model".into()],
             zero_rated_models: vec!["gpt-5.2-codex".into()],
             local_models: vec!["qwen3.6:27b".into()],
+            shadow: crate::cost::ShadowDiagnostic {
+                tokens: 391_208_320,
+                models: vec!["gpt-5-codex".into()],
+                estimate: "283.41".parse().unwrap(),
+                mappings: [("gpt-5-codex".to_owned(), "gpt-5.4".to_owned())]
+                    .into_iter()
+                    .collect(),
+            },
             unscanned_windows_roots: vec!["/mnt/c/Users/v/.claude/projects".into()],
         };
         let value: serde_json::Value = serde_json::from_str(&doctor(&report)).unwrap();
@@ -828,6 +845,9 @@ mod tests {
         assert_eq!(value["models"][0], "m1");
         assert_eq!(value["zero_rated_models"][0], "gpt-5.2-codex");
         assert_eq!(value["local_models"][0], "qwen3.6:27b");
+        assert_eq!(value["unpriced_tokens"], 391_208_320u64);
+        assert_eq!(value["shadow_estimate_usd"], 283.41);
+        assert_eq!(value["shadow_mappings"]["gpt-5-codex"], "gpt-5.4");
         assert_eq!(
             value["unscanned_windows_roots"][0],
             "/mnt/c/Users/v/.claude/projects"

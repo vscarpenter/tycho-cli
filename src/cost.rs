@@ -3,7 +3,7 @@
 //! All currency math is [`Decimal`]. Costs are stamped onto events before
 //! aggregation, so every report's buckets sum them for free.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rust_decimal::Decimal;
 
@@ -106,6 +106,64 @@ pub fn local_models(events: &[UsageEvent], table: &PricingTable) -> Vec<String> 
         .collect()
 }
 
+/// What `doctor` reports about tokens carrying no real rates: how many there
+/// are, which models they came from, what they would cost at `[shadow]`
+/// reference rates, and which reference each model used.
+///
+/// Diagnostic only. Nothing here reaches [`Coster`], and no report total
+/// includes `estimate`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ShadowDiagnostic {
+    /// Total tokens across models with no real rates.
+    pub tokens: u64,
+    /// Those models' ids, sorted and deduplicated.
+    pub models: Vec<String>,
+    /// Cost at reference rates. Zero when nothing is mapped.
+    pub estimate: Decimal,
+    /// Observed model -> the reference model standing in for it.
+    pub mappings: BTreeMap<String, String>,
+}
+
+/// Whether a model contributes nothing to cost because it has no real rates
+/// — a zero-rated entry, or no entry at all. Local Ollama-style `name:tag`
+/// models are excluded: their $0 is a fact about local inference, not a gap
+/// in the pricing table.
+fn is_unpriced(model: &str, table: &PricingTable) -> bool {
+    let rates = table.lookup(model);
+    if model.contains(':') && rates.is_none() {
+        return false;
+    }
+    rates.is_none_or(all_rates_are_zero)
+}
+
+/// Build the shadow diagnostic in a single pass, so the token count, model
+/// list, estimate, and mapping table cannot disagree with one another.
+pub fn shadow_diagnostic(events: &[UsageEvent], table: &PricingTable) -> ShadowDiagnostic {
+    let mut diagnostic = ShadowDiagnostic::default();
+    let mut models = BTreeSet::new();
+    for event in events.iter().filter(|e| is_unpriced(&e.model, table)) {
+        let usage = &event.usage;
+        diagnostic.tokens += usage.input
+            + usage.output
+            + usage.cache_write_5m
+            + usage.cache_write_1h
+            + usage.cache_read;
+        models.insert(event.model.clone());
+        // A model with no [shadow] entry contributes tokens and no dollars:
+        // a rate is never invented for it.
+        if let Some(reference) = table.shadow_reference(&event.model)
+            && let Some(rates) = table.lookup(reference)
+        {
+            diagnostic.estimate += calculate(usage, rates);
+            diagnostic
+                .mappings
+                .insert(event.model.clone(), reference.to_owned());
+        }
+    }
+    diagnostic.models = models.into_iter().collect();
+    diagnostic
+}
+
 fn all_rates_are_zero(rates: &ModelPricing) -> bool {
     rates.input == Decimal::ZERO
         && rates.output == Decimal::ZERO
@@ -153,6 +211,56 @@ mod tests {
             dedup_key: DedupKey::Uuid("u".into()),
             provider: Provider::Claude,
         }
+    }
+
+    // Every `event` carries 100+200+50+10+1000 = 1360 tokens.
+    const EVENT_TOKENS: u64 = 1_360;
+
+    /// Local `name:tag` models cost nothing as a fact, not as a gap, so they
+    /// are excluded. Priced models are excluded too.
+    #[test]
+    fn unpriced_tally_counts_only_models_with_no_real_rates() {
+        let table = PricingTable::embedded();
+        let events = [
+            event("qwen3.6:27b", None),   // local: excluded
+            event("gpt-5-codex", None),   // zero-rated: counted
+            event("claude-opus-5", None), // priced: excluded
+        ];
+        let diagnostic = shadow_diagnostic(&events, &table);
+        assert_eq!(diagnostic.tokens, EVENT_TOKENS);
+        assert_eq!(diagnostic.models, ["gpt-5-codex"]);
+    }
+
+    /// A zero-rated model with a `[shadow]` entry contributes dollars; one
+    /// without contributes only tokens. gpt-5.4 stands in for gpt-5-codex:
+    /// (100*2.5 + 200*15 + 50*2.5 + 10*2.5 + 1000*0.25) / 1e6.
+    #[test]
+    fn shadow_estimate_prices_only_mapped_models() {
+        let table = PricingTable::embedded();
+        let mapped = shadow_diagnostic(&[event("gpt-5-codex", None)], &table);
+        assert_eq!(mapped.estimate, dec("0.00365"));
+        assert_eq!(mapped.mappings["gpt-5-codex"], "gpt-5.4");
+
+        // codex-unknown is deliberately unmapped: no rate is invented for a
+        // model whose defining property is that it is unknown.
+        let unmapped = shadow_diagnostic(&[event("codex-unknown", None)], &table);
+        assert_eq!(unmapped.estimate, Decimal::ZERO);
+        assert_eq!(unmapped.tokens, EVENT_TOKENS);
+        assert!(unmapped.mappings.is_empty());
+    }
+
+    /// The diagnostic is read-only: it must not disturb the stamped costs
+    /// any report actually sums.
+    #[test]
+    fn shadow_diagnostic_does_not_change_stamped_costs() {
+        let table = PricingTable::embedded();
+        let mut events = [event("gpt-5-codex", None), event("claude-opus-4-8", None)];
+        Coster::new(&table, CostMode::Calculate).apply(&mut events);
+        let before: Vec<Decimal> = events.iter().map(|e| e.cost).collect();
+        let _ = shadow_diagnostic(&events, &table);
+        let after: Vec<Decimal> = events.iter().map(|e| e.cost).collect();
+        assert_eq!(before, after);
+        assert_eq!(before[0], Decimal::ZERO); // still zero-rated
     }
 
     // opus 4-8: (100*5 + 200*25 + 50*6.25 + 10*10 + 1000*0.5) / 1e6

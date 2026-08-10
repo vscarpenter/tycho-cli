@@ -33,6 +33,11 @@
 # credit or API pricing for those labels. Local Ollama-style model ids
 # (name:tag) carry no entry at all — `doctor` lists them separately as
 # "Local models" instead of warning about them.
+#
+# The [shadow] section at the end of this file maps those zero-rated labels
+# to a reference model whose rates stand in for them. It feeds `tycho doctor`'s
+# shadow estimate ONLY — it never changes a reported cost. Override or extend
+# it exactly like [models].
 
 [models."claude-fable-5"]
 input = 10.0
@@ -215,3 +220,18 @@ output = 0.0
 cache_write_5m = 0.0
 cache_write_1h = 0.0
 cache_read = 0.0
+
+# Reference rates for `tycho doctor`'s shadow estimate. Keys are zero-rated
+# or unpriced model ids; values name a priced model whose rates stand in for
+# them. Resolved by the same longest-prefix, '-' boundary rule as [models],
+# so "gpt-5.1-codex-max" inherits the "gpt-5.1-codex" entry.
+#
+# gpt-5.4 is chosen as the same-generation label that carries public rates.
+#
+# codex-unknown is deliberately absent: its defining property is that the
+# model is unknown, so no reference rate is justifiable. It contributes its
+# tokens to "Unpriced tokens" and nothing to the dollar estimate.
+[shadow]
+"gpt-5-codex" = "gpt-5.4"
+"gpt-5.1-codex" = "gpt-5.4"
+"gpt-5.2-codex" = "gpt-5.4"

@@ -38,6 +38,14 @@ pub enum PricingError {
     /// The file could not be read.
     #[error("cannot read pricing file: {0}")]
     Io(#[from] std::io::Error),
+    /// A `[shadow]` entry names a model with no pricing entry.
+    #[error("shadow mapping for {model:?} names {reference:?}, which has no pricing entry")]
+    UnknownShadowReference {
+        /// The zero-rated or unpriced model the mapping is for.
+        model: String,
+        /// The reference id that could not be priced.
+        reference: String,
+    },
 }
 
 /// A set of per-model rates, keyed by model-id prefix.
@@ -45,6 +53,24 @@ pub enum PricingError {
 pub struct PricingTable {
     #[serde(default)]
     models: BTreeMap<String, ModelPricing>,
+    /// Stand-in rates for models that are deliberately zero-rated or absent:
+    /// observed model id -> the id whose rates represent it. Feeds `doctor`'s
+    /// shadow estimate only; the cost engine never consults it.
+    #[serde(default)]
+    shadow: BTreeMap<String, String>,
+}
+
+/// Longest-prefix match with a `-` boundary, shared by the rate and shadow
+/// maps so the two can never disagree about what an id resolves to.
+fn longest_prefix_match<'a, V>(map: &'a BTreeMap<String, V>, model: &str) -> Option<&'a V> {
+    map.iter()
+        .filter(|(key, _)| {
+            model == key.as_str()
+                || (model.starts_with(key.as_str())
+                    && model.as_bytes().get(key.len()) == Some(&b'-'))
+        })
+        .max_by_key(|(key, _)| key.len())
+        .map(|(_, value)| value)
 }
 
 impl PricingTable {
@@ -70,21 +96,38 @@ impl PricingTable {
     /// entry (and a more specific entry always beats a shorter one), while
     /// `gpt-5.41` does *not* spuriously match a `gpt-5.4` entry.
     pub fn lookup(&self, model: &str) -> Option<&ModelPricing> {
-        self.models
-            .iter()
-            .filter(|(key, _)| {
-                model == key.as_str()
-                    || (model.starts_with(key.as_str())
-                        && model.as_bytes().get(key.len()) == Some(&b'-'))
-            })
-            .max_by_key(|(key, _)| key.len())
-            .map(|(_, pricing)| pricing)
+        longest_prefix_match(&self.models, model)
+    }
+
+    /// The reference model whose rates stand in for `model` in `doctor`'s
+    /// shadow estimate, if the table defines one. Resolved by the same
+    /// prefix rule as [`Self::lookup`].
+    pub fn shadow_reference(&self, model: &str) -> Option<&str> {
+        longest_prefix_match(&self.shadow, model).map(String::as_str)
+    }
+
+    /// Check that every `[shadow]` value names a model this table can price.
+    ///
+    /// Run *after* merging user overrides: a user table may legitimately
+    /// reference a model defined only in the embedded defaults, so validating
+    /// each layer in isolation would reject valid configurations.
+    pub fn validate(&self) -> Result<(), PricingError> {
+        for (model, reference) in &self.shadow {
+            if self.lookup(reference).is_none() {
+                return Err(PricingError::UnknownShadowReference {
+                    model: model.clone(),
+                    reference: reference.clone(),
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Merge `overrides` over this table: per-model replacement, new
-    /// models added.
+    /// models added, and the same for shadow mappings.
     pub fn merge(&mut self, overrides: PricingTable) {
         self.models.extend(overrides.models);
+        self.shadow.extend(overrides.shadow);
     }
 }
 
@@ -184,6 +227,61 @@ mod tests {
         assert!(table.lookup("codex-unknown").is_some());
         assert!(table.lookup("gpt-5-chat-latest").is_some());
         assert!(table.lookup("gemma4:12b").is_none()); // stanza deleted; handled as local
+    }
+
+    #[test]
+    fn shadow_reference_resolves_by_the_same_prefix_rule_as_lookup() {
+        let table = PricingTable::embedded();
+        assert_eq!(table.shadow_reference("gpt-5-codex"), Some("gpt-5.4"));
+        // The '-' boundary applies here too: the -max variant inherits it.
+        assert_eq!(table.shadow_reference("gpt-5.1-codex-max"), Some("gpt-5.4"));
+        // Priced models need no stand-in.
+        assert_eq!(table.shadow_reference("claude-opus-5"), None);
+        // codex-unknown is deliberately unmapped: its defining property is
+        // that the model is unknown, so no reference rate is justifiable.
+        assert_eq!(table.shadow_reference("codex-unknown"), None);
+    }
+
+    #[test]
+    fn shadow_value_naming_an_unpriced_model_fails_validation() {
+        let table = PricingTable::parse(
+            r#"
+            [models."real-model"]
+            input = 1.0
+            output = 1.0
+            cache_write_5m = 1.0
+            cache_write_1h = 1.0
+            cache_read = 1.0
+
+            [shadow]
+            "legacy" = "does-not-exist"
+            "#,
+        )
+        .unwrap();
+        assert!(matches!(
+            table.validate(),
+            Err(PricingError::UnknownShadowReference { .. })
+        ));
+    }
+
+    #[test]
+    fn embedded_table_validates() {
+        PricingTable::embedded().validate().unwrap();
+    }
+
+    #[test]
+    fn merge_carries_shadow_mappings() {
+        let mut base = PricingTable::embedded();
+        base.merge(
+            PricingTable::parse(
+                r#"
+                [shadow]
+                "gpt-5-codex" = "gpt-5.5"
+                "#,
+            )
+            .unwrap(),
+        );
+        assert_eq!(base.shadow_reference("gpt-5-codex"), Some("gpt-5.5"));
     }
 
     #[test]

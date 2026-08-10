@@ -56,12 +56,13 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     }
     let zero_rated = cost::zero_rated_models(&outcome.events, &pricing);
     let local = cost::local_models(&outcome.events, &pricing);
+    let shadow = cost::shadow_diagnostic(&outcome.events, &pricing);
     Coster::new(&pricing, cli.global.mode.into()).apply(&mut outcome.events);
 
     println!(
         "{}",
         render(
-            &cli, tz, &roots, outcome, unpriced, zero_rated, local, &pricing
+            &cli, tz, &roots, outcome, unpriced, zero_rated, local, shadow, &pricing
         )
     );
     Ok(())
@@ -169,6 +170,9 @@ fn resolve_pricing(cli: &Cli) -> anyhow::Result<PricingTable> {
             PricingTable::load(path).with_context(|| format!("loading {}", path.display()))?;
         table.merge(overrides);
     }
+    // After both override layers: a user table may legitimately reference a
+    // model defined only in the embedded defaults.
+    table.validate()?;
     Ok(table)
 }
 
@@ -181,6 +185,7 @@ fn render(
     unpriced: Vec<String>,
     zero_rated: Vec<String>,
     local: Vec<String>,
+    shadow: cost::ShadowDiagnostic,
     pricing: &PricingTable,
 ) -> String {
     let global = &cli.global;
@@ -251,6 +256,7 @@ fn render(
                 unpriced,
                 zero_rated,
                 local,
+                shadow,
                 unscanned_windows_roots(roots),
             );
             if global.json {

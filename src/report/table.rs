@@ -342,6 +342,31 @@ pub fn doctor(report: &DoctorReport) -> String {
         report.local_models.join("\n")
     };
     table.add_row(vec!["Local models".to_owned(), local]);
+    let shadow = &report.shadow;
+    table.add_row(vec![
+        "Unpriced tokens".to_owned(),
+        if shadow.tokens == 0 {
+            "(none)".to_owned()
+        } else {
+            format!(
+                "{} across {} models",
+                group_thousands(shadow.tokens),
+                shadow.models.len()
+            )
+        },
+    ]);
+    table.add_row(vec![
+        "Shadow estimate".to_owned(),
+        if shadow.estimate.is_zero() {
+            "(none)".to_owned()
+        } else {
+            // doctor takes no --precise, so two places as elsewhere here.
+            format!(
+                "{} at reference rates (see [shadow] in pricing)",
+                money(shadow.estimate, false)
+            )
+        },
+    ]);
     // Only rendered inside WSL, where a second Claude Code install writes to
     // the Windows profile. Everywhere else the row would be permanent noise.
     if !report.unscanned_windows_roots.is_empty() {
@@ -680,6 +705,14 @@ mod tests {
             unpriced_models: vec!["mystery-model".into()],
             zero_rated_models: vec!["gpt-5.2-codex".into()],
             local_models: vec!["qwen3.6:27b".into()],
+            shadow: crate::cost::ShadowDiagnostic {
+                tokens: 391_208_320,
+                models: vec!["gpt-5-codex".into()],
+                estimate: "283.41".parse().unwrap(),
+                mappings: [("gpt-5-codex".to_owned(), "gpt-5.4".to_owned())]
+                    .into_iter()
+                    .collect(),
+            },
             unscanned_windows_roots: Vec::new(),
         };
         let rendered = doctor(&report);

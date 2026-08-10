@@ -202,6 +202,21 @@ new ones — at `~/.config/tycho/pricing.toml` (or `$XDG_CONFIG_HOME/tycho/`),
 or per run with `--pricing <PATH>`. Models with no pricing entry cost $0,
 warn once on stderr, and are listed by `doctor`.
 
+Because those $0 models would otherwise vanish silently from a total, `doctor`
+reports how many tokens carry no real rates and — via an optional `[shadow]`
+section in the pricing table — what they would have cost at a reference
+model's rates:
+
+```
+Unpriced tokens     419,779,330 across 6 models
+Shadow estimate     $176.64 at reference rates (see [shadow] in pricing)
+```
+
+The shadow estimate is a diagnostic. It never enters any cost, never changes a
+report total, and appears in no report but `doctor`. A model with no `[shadow]`
+entry contributes its tokens and no dollars — a rate is never invented for it,
+which is why `codex-unknown` is deliberately left unmapped.
+
 Cost modes mirror ccusage: `--mode auto` (default) uses a record's
 pre-computed `costUSD` when present and calculates otherwise; `calculate`
 always prices from tokens; `display` only sums recorded `costUSD` values
