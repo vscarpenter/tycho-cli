@@ -235,6 +235,14 @@ never triggers an "unpriced model" warning; `doctor` lists it (and any other
 zero-priced-by-design id) under "Zero-rated models", separately from models
 that are genuinely unpriced.
 
+When a later `turn_context` in the same file *does* supply a model, tycho
+backfills it onto those events once the file finishes parsing, and counts the
+correction as "Codex models backfilled" in `doctor`. Because `codex_model` is
+set once and never reverts to `None`, the placeholder can only appear before
+the file's *first* `turn_context`, so that first model is the correct value
+for every placeholder in the file — no per-event search is needed. Backfill is
+strictly per file. Files that never name a model keep `codex-unknown`.
+
 Codex records carry no per-message id analogous to Claude's `message.id`, so
 dedup identity is synthesized per file instead: `codex:{file_stem}:{index}`,
 where `index` counts token-count events within that file starting at 1 and

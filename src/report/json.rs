@@ -297,6 +297,7 @@ struct LinesOut {
     missing_model: u64,
     missing_identity: u64,
     synthetic: u64,
+    codex_model_backfilled: u64,
 }
 
 #[derive(Serialize)]
@@ -349,6 +350,7 @@ pub fn doctor(report: &DoctorReport) -> String {
             missing_model: stats.missing_model,
             missing_identity: stats.missing_identity,
             synthetic: stats.synthetic,
+            codex_model_backfilled: stats.codex_model_backfilled,
         },
         duplicates_collapsed: report.summary.duplicates_collapsed,
         date_span: report.date_span.map(|(first, last)| SpanOut {
@@ -762,6 +764,7 @@ mod tests {
                     lines: 10,
                     events: 5,
                     malformed: 1,
+                    codex_model_backfilled: 3,
                     ..Default::default()
                 },
             },
@@ -780,6 +783,7 @@ mod tests {
         assert_eq!(value["roots"][0]["exists"], true);
         assert_eq!(value["files"]["bytes"], 512);
         assert_eq!(value["lines"]["malformed"], 1);
+        assert_eq!(value["lines"]["codex_model_backfilled"], 3);
         assert_eq!(value["duplicates_collapsed"], 2);
         assert_eq!(value["date_span"]["first"], "2026-05-17T00:00:00Z");
         assert_eq!(value["models"][0], "m1");

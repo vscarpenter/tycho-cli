@@ -269,7 +269,7 @@ pub fn doctor(report: &DoctorReport) -> String {
         Some((first, last)) => format!("{} → {}", first.date_naive(), last.date_naive()),
         None => "(no events)".to_owned(),
     };
-    let rows: [(&str, String); 14] = [
+    let rows: [(&str, String); 15] = [
         (
             "Files scanned",
             group_thousands(report.summary.files_scanned),
@@ -300,6 +300,10 @@ pub fn doctor(report: &DoctorReport) -> String {
         (
             "Synthetic (API error) records",
             group_thousands(stats.synthetic),
+        ),
+        (
+            "Codex models backfilled",
+            group_thousands(stats.codex_model_backfilled),
         ),
         ("Date span", span),
     ];
@@ -334,9 +338,8 @@ pub fn doctor(report: &DoctorReport) -> String {
             .map(|path| path.display().to_string())
             .collect();
         value.push(String::new());
-        value.push(
-            "Windows-side Claude Code transcripts, not counted. To include them,".to_owned(),
-        );
+        value
+            .push("Windows-side Claude Code transcripts, not counted. To include them,".to_owned());
         value.push("add their .claude dirs to CLAUDE_CONFIG_DIR (comma-separated).".to_owned());
         table.add_row(vec!["Unscanned (WSL)".to_owned(), value.join("\n")]);
     }

@@ -112,6 +112,9 @@ pub struct ParseStats {
     pub missing_identity: u64,
     /// Synthetic API-error placeholders.
     pub synthetic: u64,
+    /// Codex events whose [`CODEX_UNKNOWN`] placeholder was replaced by the
+    /// file's first known model (see [`backfill_codex_model`]).
+    pub codex_model_backfilled: u64,
 }
 
 impl ParseStats {
@@ -139,6 +142,7 @@ impl ParseStats {
         self.missing_model += other.missing_model;
         self.missing_identity += other.missing_identity;
         self.synthetic += other.synthetic;
+        self.codex_model_backfilled += other.codex_model_backfilled;
     }
 }
 
@@ -338,12 +342,22 @@ pub fn parse_line(line: &str) -> Result<UsageEvent, SkipReason> {
     .parse_line(line)
 }
 
+/// Placeholder model id for Codex `token_count` records reached before the
+/// file's first `turn_context` supplied a real one. Zero-rated in the
+/// default pricing table, and replaced by [`backfill_codex_model`] whenever
+/// the file names a model later on.
+pub const CODEX_UNKNOWN: &str = "codex-unknown";
+
 struct LineParser {
     provider: Provider,
     fallback_session_id: Option<String>,
     codex_session_id: Option<String>,
     codex_project: Option<String>,
     codex_model: Option<String>,
+    /// The first model any `turn_context` in this file supplied. Distinct
+    /// from `codex_model`, which tracks the *current* model and would hold
+    /// the last value at end of file.
+    first_codex_model: Option<String>,
     usage_index: u64,
 }
 
@@ -355,6 +369,7 @@ impl Default for LineParser {
             codex_session_id: None,
             codex_project: None,
             codex_model: None,
+            first_codex_model: None,
             usage_index: 0,
         }
     }
@@ -418,6 +433,9 @@ impl LineParser {
             Some("turn_context") => {
                 if let Some(model) = &payload.model {
                     self.codex_model = Some(model.clone());
+                    if self.first_codex_model.is_none() {
+                        self.first_codex_model = Some(model.clone());
+                    }
                 }
                 if let Some(cwd) = &payload.cwd {
                     self.codex_project = Some(encode_project(cwd));
@@ -459,7 +477,7 @@ impl LineParser {
             .codex_model
             .clone()
             .or_else(|| payload.model.clone())
-            .unwrap_or_else(|| "codex-unknown".to_owned());
+            .unwrap_or_else(|| CODEX_UNKNOWN.to_owned());
         self.usage_index += 1;
         let file_stem = self.fallback_session_id.as_deref().unwrap_or("(unknown)");
         let dedup_key = DedupKey::Uuid(format!("codex:{file_stem}:{}", self.usage_index));
@@ -563,6 +581,24 @@ fn parse_claude_record(raw: RawRecord) -> Result<UsageEvent, SkipReason> {
 /// failures) are `Err`; content problems are counted in
 /// [`FileScan::stats`]. Lines that are not valid UTF-8 are decoded lossily
 /// rather than aborting the file.
+/// Replace the [`CODEX_UNKNOWN`] placeholder left on events that preceded the
+/// file's first `turn_context`.
+///
+/// `codex_model` is set once and never reverts to `None`, so an event can
+/// only carry the placeholder if it was parsed before that record. The file's
+/// first known model is therefore the correct value for every one of them,
+/// and no per-event search is needed. Backfill is per file: the parser state
+/// that produced `first_model` never crosses a file boundary.
+fn backfill_codex_model(scan: &mut FileScan, first_model: Option<&str>) {
+    let Some(model) = first_model else { return };
+    let FileScan { events, stats } = scan;
+    for event in events.iter_mut().filter(|e| e.model == CODEX_UNKNOWN) {
+        event.model.clear();
+        event.model.push_str(model);
+        stats.codex_model_backfilled += 1;
+    }
+}
+
 pub fn parse_file(path: &Path, provider: Provider) -> io::Result<FileScan> {
     let mut reader = io::BufReader::new(std::fs::File::open(path)?);
     let mut scan = FileScan::default();
@@ -571,6 +607,7 @@ pub fn parse_file(path: &Path, provider: Provider) -> io::Result<FileScan> {
     loop {
         buf.clear();
         if reader.read_until(b'\n', &mut buf)? == 0 {
+            backfill_codex_model(&mut scan, parser.first_codex_model.as_deref());
             return Ok(scan);
         }
         let line = String::from_utf8_lossy(&buf);
@@ -811,7 +848,69 @@ mod tests {
         .unwrap();
         let scan = parse_file(&path, Provider::Codex).unwrap();
         assert_eq!(scan.stats.events, 1);
-        assert_eq!(scan.events[0].model, "codex-unknown");
+        assert_eq!(scan.events[0].model, CODEX_UNKNOWN);
+        assert_eq!(scan.stats.codex_model_backfilled, 0);
+    }
+
+    /// A resumed rollout whose context lines were trimmed records usage
+    /// before naming its model. The model is still recoverable from the
+    /// `turn_context` that appears later in the same file.
+    #[test]
+    fn token_counts_before_turn_context_are_backfilled() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-resumed.jsonl");
+        let count = r#"{"type":"event_msg","timestamp":"2026-07-08T01:00:02Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":10}}}}"#;
+        let turn = r#"{"type":"turn_context","timestamp":"2026-07-08T01:00:03Z","payload":{"model":"gpt-5.6-sol"}}"#;
+        std::fs::write(&path, [count, turn, count].join("\n")).unwrap();
+
+        let scan = parse_file(&path, Provider::Codex).unwrap();
+        let models: Vec<_> = scan.events.iter().map(|e| e.model.as_str()).collect();
+        assert_eq!(models, ["gpt-5.6-sol", "gpt-5.6-sol"]);
+        assert_eq!(scan.stats.codex_model_backfilled, 1);
+    }
+
+    /// `codex_model` is set once and never reverts, so a placeholder can only
+    /// precede the *first* `turn_context` — never a later switch.
+    #[test]
+    fn backfill_uses_the_first_model_not_the_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-switch.jsonl");
+        let count = r#"{"type":"event_msg","timestamp":"2026-07-08T01:00:02Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":10}}}}"#;
+        std::fs::write(
+            &path,
+            [
+                count,
+                r#"{"type":"turn_context","timestamp":"2026-07-08T01:00:03Z","payload":{"model":"gpt-5.6-sol"}}"#,
+                r#"{"type":"turn_context","timestamp":"2026-07-08T01:00:04Z","payload":{"model":"gpt-5.5"}}"#,
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+
+        let scan = parse_file(&path, Provider::Codex).unwrap();
+        assert_eq!(scan.events[0].model, "gpt-5.6-sol");
+    }
+
+    /// Backfill is per file: a file that names a model must not lend it to a
+    /// different file parsed in the same scan.
+    #[test]
+    fn backfill_does_not_leak_between_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let count = r#"{"type":"event_msg","timestamp":"2026-07-08T01:00:02Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":10}}}}"#;
+        let turn = r#"{"type":"turn_context","timestamp":"2026-07-08T01:00:03Z","payload":{"model":"gpt-5.6-sol"}}"#;
+        let named = dir.path().join("named.jsonl");
+        let bare = dir.path().join("bare.jsonl");
+        std::fs::write(&named, [count, turn].join("\n")).unwrap();
+        std::fs::write(&bare, count).unwrap();
+
+        assert_eq!(
+            parse_file(&named, Provider::Codex).unwrap().events[0].model,
+            "gpt-5.6-sol"
+        );
+        assert_eq!(
+            parse_file(&bare, Provider::Codex).unwrap().events[0].model,
+            CODEX_UNKNOWN
+        );
     }
 
     #[test]

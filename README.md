@@ -217,6 +217,11 @@ only meaningful for old transcripts or custom logs that include recorded cost).
 - OpenAI subscription-plan usage is not the same as API invoicing. Built-in
   OpenAI prices estimate API-equivalent token cost; override pricing for long
   context, Batch, Flex, Priority, data residency, or workspace-specific rates.
+- Codex rollouts whose context lines were trimmed (resumed sessions) record
+  usage before naming their model. tycho recovers the model from the file's
+  first `turn_context` and reports the count as "Codex models backfilled" in
+  `tycho doctor`. This lands spend that earlier versions priced at $0, so
+  historical totals can *increase* after upgrading.
 - Historical/private Codex labels with no public API rate are explicitly
   priced at $0 to avoid noisy warnings; `doctor` lists them separately as
   "Zero-rated models" rather than mixing them in with genuinely unpriced
