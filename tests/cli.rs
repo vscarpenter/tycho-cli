@@ -403,15 +403,46 @@ fn pi_events_take_their_project_from_the_session_cwd() {
 /// Pi's own `usage.cost.total` is the only truthful source for a
 /// Bedrock-prefixed id: `longest_prefix_match` cannot resolve
 /// `us.anthropic.claude-opus-4-6-v1` onto `claude-opus-4-6`, so calculate
-/// mode reports $0 where auto mode reports what Pi actually billed.
+/// mode reports $0 for it where auto mode reports what Pi actually billed.
+///
+/// Asserted per model rather than on the fixture total, so that pricing
+/// another model in the fixture (as adding Ollama Cloud rates did) cannot
+/// quietly invalidate the claim this test exists to make.
 #[test]
 fn pi_recorded_cost_prices_a_model_the_table_cannot() {
+    const BEDROCK: &str = "us.anthropic.claude-opus-4-6-v1";
     let home = tempfile::tempdir().unwrap();
-    let auto = stdout_json(tycho_pi(&home).args(["daily", "--json"]));
-    assert_eq!(auto["totals"]["cost_usd"], 0.04798375);
 
-    let calculated = stdout_json(tycho_pi(&home).args(["daily", "--json", "--mode", "calculate"]));
-    assert_eq!(calculated["totals"]["cost_usd"], 0.0);
+    let auto = stdout_json(tycho_pi(&home).args(["models", "--json"]));
+    assert_eq!(model_cost(&auto, BEDROCK), 0.04798375);
+
+    let calculated = stdout_json(tycho_pi(&home).args(["models", "--json", "--mode", "calculate"]));
+    assert_eq!(
+        model_cost(&calculated, BEDROCK),
+        0.0,
+        "the pricing table cannot resolve a Bedrock region prefix"
+    );
+}
+
+/// Ollama Cloud is metered, so a `:cloud` id must cost real money under
+/// calculate mode — it is not local inference despite the ':' in its id.
+/// 100 input + 500 cached + 20 output at $1.40/$0.26/$4.40 per 1M.
+#[test]
+fn ollama_cloud_models_are_priced_not_treated_as_local() {
+    let home = tempfile::tempdir().unwrap();
+    let calculated = stdout_json(tycho_pi(&home).args(["models", "--json", "--mode", "calculate"]));
+    assert_eq!(model_cost(&calculated, "glm-5.3:cloud"), 0.000358);
+}
+
+fn model_cost(report: &serde_json::Value, model: &str) -> f64 {
+    report["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["model"] == model)
+        .unwrap_or_else(|| panic!("{model} missing from the report"))["tokens"]["cost_usd"]
+        .as_f64()
+        .unwrap()
 }
 
 /// `blocks` mirrors Claude's 5-hour reset, so it stays Claude-only unless

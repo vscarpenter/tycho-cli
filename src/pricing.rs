@@ -216,6 +216,48 @@ mod tests {
         assert!(table.lookup("qwen3.6:27b").is_none());
     }
 
+    /// Ollama Cloud is metered per token, so its ids carry real rates. The
+    /// runtime id is `<model>:cloud`, and the '-' boundary means a bare
+    /// `glm-5.3` key cannot match it — each row needs its own `:cloud`
+    /// stanza or the spend silently reports $0.
+    #[test]
+    fn ollama_cloud_ids_carry_real_rates() {
+        let table = PricingTable::embedded();
+        let cloud = table.lookup("glm-5.3:cloud").unwrap();
+        assert_eq!(cloud.input, dec("1.4"));
+        assert_eq!(cloud.output, dec("4.4"));
+        assert_eq!(cloud.cache_read, dec("0.26"));
+        // Ollama publishes no cache-write rate; writes must not be invented.
+        assert_eq!(cloud.cache_write_5m, dec("0"));
+        assert_eq!(cloud.cache_write_1h, dec("0"));
+        let bare = table.lookup("glm-5.3").unwrap();
+        assert_eq!(bare.input, dec("1.4"));
+        // Longest-prefix still resolves the flash variant to its own rates.
+        let flash = table.lookup("glm-5.3-flash").unwrap();
+        assert_eq!(flash.input, dec("0.15"));
+        assert_eq!(flash.output, dec("0.5"));
+        let kimi = table.lookup("kimi-k3:cloud").unwrap();
+        assert_eq!(kimi.output, dec("15"));
+    }
+
+    /// The cloud table adds a `gemma4` stanza. Locally-run quantization tags
+    /// must NOT resolve onto it — that would bill free local inference.
+    #[test]
+    fn local_quantization_tags_never_resolve_onto_a_cloud_stanza() {
+        let table = PricingTable::embedded();
+        for local in [
+            "gemma4:12b",
+            "qwen3.8:27b",
+            "qwen3.6:27b-q8_0",
+            "qwen3.8:27b-mlx",
+        ] {
+            assert!(
+                table.lookup(local).is_none(),
+                "{local} must stay unpriced: it is local inference, billed at nothing"
+            );
+        }
+    }
+
     #[test]
     fn lookup_requires_a_dash_boundary() {
         let table = PricingTable::embedded();

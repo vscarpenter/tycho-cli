@@ -223,6 +223,285 @@ cache_write_5m = 0.0
 cache_write_1h = 0.0
 cache_read = 0.0
 
+# --- Ollama Cloud -----------------------------------------------------------
+#
+# Ollama Cloud is metered per token, so these ids carry real rates and their
+# spend lands in every report total. Verified 2026-08-31 against the pricing
+# table published at ollama.com.
+#
+# Ollama publishes no cache-WRITE rate, so both write buckets are 0 here
+# rather than derived from the input rate: an invented multiplier would be a
+# guess printed as a number. "Cached input" maps to cache_read.
+#
+# Each model appears twice: the published name, and the `<name>:cloud` form
+# Ollama's runtime actually records (and that Pi writes to its transcripts).
+# Both are needed because lookup requires a '-' boundary, so the key
+# "glm-5.3" does NOT match the id "glm-5.3:cloud" — without the twin, real
+# cloud spend silently reports $0.
+#
+# CAVEAT — gpt-oss:120b, gpt-oss:20b, and qwen3.5:397b are billed cloud
+# models whose ids are IDENTICAL when the same model is pulled and run
+# locally, where it is free. tycho cannot tell the two apart and will price
+# them as cloud. If you run any of them on your own hardware, zero them out
+# in ~/.config/tycho/pricing.toml:
+#
+#     [models."gpt-oss:120b"]
+#     input = 0.0
+#     output = 0.0
+#     cache_write_5m = 0.0
+#     cache_write_1h = 0.0
+#     cache_read = 0.0
+#
+# Locally-run models with a quantization or size tag and no entry here
+# (qwen3.8:27b, gemma4:12b, ...) stay free automatically: the local rule
+# applies to ':' ids with no pricing entry.
+
+[models."deepseek-v4-flash"]
+input = 0.44
+output = 1.32
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.014
+
+[models."deepseek-v4-flash:cloud"]
+input = 0.44
+output = 1.32
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.014
+
+[models."deepseek-v4-pro"]
+input = 1.32
+output = 3.96
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.044
+
+[models."deepseek-v4-pro:cloud"]
+input = 1.32
+output = 3.96
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.044
+
+[models."gemma4"]
+input = 0.14
+output = 0.40
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.05
+
+[models."gemma4:cloud"]
+input = 0.14
+output = 0.40
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.05
+
+[models."glm-5.3"]
+input = 1.40
+output = 4.40
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.26
+
+[models."glm-5.3:cloud"]
+input = 1.40
+output = 4.40
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.26
+
+[models."glm-5.3-flash"]
+input = 0.15
+output = 0.50
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.03
+
+[models."glm-5.3-flash:cloud"]
+input = 0.15
+output = 0.50
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.03
+
+[models."glm-5.2"]
+input = 1.40
+output = 4.40
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.26
+
+[models."glm-5.2:cloud"]
+input = 1.40
+output = 4.40
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.26
+
+[models."glm-5.1"]
+input = 1.00
+output = 3.20
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.20
+
+[models."glm-5.1:cloud"]
+input = 1.00
+output = 3.20
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.20
+
+[models."gpt-oss:120b"]
+input = 0.15
+output = 0.60
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.014
+
+[models."gpt-oss:20b"]
+input = 0.07
+output = 0.30
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.035
+
+[models."kimi-k3"]
+input = 3.00
+output = 15.00
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.30
+
+[models."kimi-k3:cloud"]
+input = 3.00
+output = 15.00
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.30
+
+[models."kimi-k2.7-code"]
+input = 0.95
+output = 4.00
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.19
+
+[models."kimi-k2.7-code:cloud"]
+input = 0.95
+output = 4.00
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.19
+
+[models."kimi-k2.6"]
+input = 0.95
+output = 4.00
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.16
+
+[models."kimi-k2.6:cloud"]
+input = 0.95
+output = 4.00
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.16
+
+[models."minimax-m3"]
+input = 0.60
+output = 2.40
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.12
+
+[models."minimax-m3:cloud"]
+input = 0.60
+output = 2.40
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.12
+
+[models."minimax-m2.7"]
+input = 0.30
+output = 1.20
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.06
+
+[models."minimax-m2.7:cloud"]
+input = 0.30
+output = 1.20
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.06
+
+[models."mistral-large-3"]
+input = 0.50
+output = 1.50
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.50
+
+[models."mistral-large-3:cloud"]
+input = 0.50
+output = 1.50
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.50
+
+[models."nemotron-3-nano"]
+input = 0.06
+output = 0.24
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.06
+
+[models."nemotron-3-nano:cloud"]
+input = 0.06
+output = 0.24
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.06
+
+[models."nemotron-3-super"]
+input = 0.015
+output = 0.60
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.015
+
+[models."nemotron-3-super:cloud"]
+input = 0.015
+output = 0.60
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.015
+
+[models."nemotron-3-ultra"]
+input = 0.10
+output = 3.00
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.10
+
+[models."nemotron-3-ultra:cloud"]
+input = 0.10
+output = 3.00
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.10
+
+[models."qwen3.5:397b"]
+input = 0.60
+output = 3.60
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.60
+
+
 # Reference rates for `tycho doctor`'s shadow estimate. Keys are zero-rated
 # or unpriced model ids; values name a priced model whose rates stand in for
 # them. Resolved by the same longest-prefix, '-' boundary rule as [models],
