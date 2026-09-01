@@ -1,14 +1,16 @@
 # tycho default pricing — USD per million tokens.
 #
-# Source: Anthropic model pricing reference (cached 2026-06-24), verified
-# 2026-07-30 against https://platform.claude.com/docs/en/pricing.
+# Source: Anthropic model pricing reference, verified 2026-08-31 against
+# https://platform.claude.com/docs/en/about-claude/models/overview.
 # Cache rates derive from Anthropic's published multipliers on the input
 # rate: 5-minute cache write = 1.25x, 1-hour cache write = 2x, cache
 # read = 0.1x.
 #
-# claude-sonnet-5 uses the introductory rate ($2/$10) billed through
-# 2026-08-31; the standard rate is $3 input / $15 output. Override any
-# model at ~/.config/tycho/pricing.toml or with --pricing <PATH>.
+# claude-sonnet-5 is $2/$10. That began as an introductory rate billed
+# through 2026-08-31, and earlier revisions of this file said to raise it
+# to $3/$15 afterward — do NOT. Anthropic made the $2/$10 rate permanent
+# on 2026-08-11 and cancelled the increase. Override any model at
+# ~/.config/tycho/pricing.toml or with --pricing <PATH>.
 #
 # Fast mode on claude-opus-5 bills at $10/$50 rather than the standard
 # $5/$25, but the logs record the same model id either way — override

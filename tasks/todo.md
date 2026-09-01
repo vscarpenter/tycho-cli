@@ -40,9 +40,11 @@ priced only because Pi records its own cost.
   under `payload_type: "runtime.session"`, no model id on the usage record (it
   comes from separate `run.model.configured` events), and microsecond-epoch
   `recorded_at` that `bounded_epoch` rejects. Needs its own design.
-- **Unrelated and still open:** `pricing/default.toml` notes Sonnet 5 intro
-  pricing ends 2026-08-31 — that is today; the bump to $3/$15 is untouched
-  by this work.
+- **Resolved, not a pending bump:** `pricing/default.toml` used to say Sonnet 5
+  intro pricing ended 2026-08-31 and should rise to $3/$15. Anthropic made the
+  $2/$10 rate **permanent** on 2026-08-11 and cancelled the increase, verified
+  2026-08-31 against the live docs. tycho's rates were already right; only the
+  misleading comment changed. Do not "fix" those rates to $3/$15.
 
 ## Phase plan (spec §10)
 
@@ -177,5 +179,6 @@ no version bump, no tag.
   billing-blocks report).
 - CI has never run remotely (no GitHub remote configured yet) — push and
   verify before calling CI green.
-- pricing/default.toml notes Sonnet 5 intro pricing ends 2026-08-31 —
-  bump to $3/$15 after that date.
+- ~~pricing/default.toml notes Sonnet 5 intro pricing ends 2026-08-31 —
+  bump to $3/$15 after that date.~~ Superseded 2026-08-31: Anthropic made
+  $2/$10 permanent on 2026-08-11. No bump; rates stay as they are.
