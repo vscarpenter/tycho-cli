@@ -338,3 +338,90 @@ fn invalid_pricing_file_is_a_runtime_error() {
         .assert()
         .code(1);
 }
+
+/// Pi's agent directory, whose `sessions/` subtree the CLI discovers when
+/// `PI_CODING_AGENT_DIR` points at it.
+fn pi_agent_dir() -> String {
+    format!("{}/tests/fixtures/pi", env!("CARGO_MANIFEST_DIR"))
+}
+
+/// A `tycho` invocation that sees ONLY the Pi fixture: `HOME` is redirected
+/// to an empty temp directory so the machine's real Claude and Codex roots
+/// cannot leak into the assertions.
+fn tycho_pi(home: &tempfile::TempDir) -> Command {
+    let mut cmd = Command::cargo_bin("tycho").unwrap();
+    cmd.env("HOME", home.path())
+        .env("PI_CODING_AGENT_DIR", pi_agent_dir())
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env_remove("CODEX_HOME")
+        .args(["--utc"]);
+    cmd
+}
+
+#[test]
+fn pi_sessions_are_discovered_and_reported_end_to_end() {
+    let home = tempfile::tempdir().unwrap();
+    let value = stdout_json(tycho_pi(&home).args(["models", "--json", "--provider", "pi"]));
+
+    let models = value["models"].as_array().unwrap();
+    assert_eq!(models.len(), 2, "one row per model, decoy records skipped");
+
+    let bedrock = models
+        .iter()
+        .find(|m| m["model"] == "us.anthropic.claude-opus-4-6-v1")
+        .unwrap();
+    assert_eq!(bedrock["tokens"]["input"], 3);
+    assert_eq!(bedrock["tokens"]["output"], 46);
+    assert_eq!(bedrock["tokens"]["cache_read"], 11);
+    // No TTL breakdown in Pi's data: the whole write is priced at 5m.
+    assert_eq!(bedrock["tokens"]["cache_write_5m"], 7_491);
+    assert_eq!(bedrock["tokens"]["cache_write_1h"], 0);
+
+    let ollama = models
+        .iter()
+        .find(|m| m["model"] == "glm-5.3:cloud")
+        .unwrap();
+    assert_eq!(ollama["tokens"]["input"], 100);
+    assert_eq!(ollama["tokens"]["cache_read"], 500);
+
+    // 103 input + 66 output + 511 cache read + 7,531 cache write.
+    assert_eq!(value["totals"]["total"], 8_211);
+}
+
+/// The point of reading `cwd` from the session record: Pi work lands under
+/// the same project row as Claude Code work in the same repository, rather
+/// than under Pi's own `--Users-v-Projects-alpha--` directory encoding.
+#[test]
+fn pi_events_take_their_project_from_the_session_cwd() {
+    let home = tempfile::tempdir().unwrap();
+    let value = stdout_json(tycho_pi(&home).args(["projects", "--json"]));
+    let projects = value["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0]["project"], "-Users-v-Projects-alpha");
+}
+
+/// Pi's own `usage.cost.total` is the only truthful source for a
+/// Bedrock-prefixed id: `longest_prefix_match` cannot resolve
+/// `us.anthropic.claude-opus-4-6-v1` onto `claude-opus-4-6`, so calculate
+/// mode reports $0 where auto mode reports what Pi actually billed.
+#[test]
+fn pi_recorded_cost_prices_a_model_the_table_cannot() {
+    let home = tempfile::tempdir().unwrap();
+    let auto = stdout_json(tycho_pi(&home).args(["daily", "--json"]));
+    assert_eq!(auto["totals"]["cost_usd"], 0.04798375);
+
+    let calculated = stdout_json(tycho_pi(&home).args(["daily", "--json", "--mode", "calculate"]));
+    assert_eq!(calculated["totals"]["cost_usd"], 0.0);
+}
+
+/// `blocks` mirrors Claude's 5-hour reset, so it stays Claude-only unless
+/// widened; a Pi-only tree therefore reports nothing until asked.
+#[test]
+fn blocks_ignores_pi_events_until_the_provider_is_widened() {
+    let home = tempfile::tempdir().unwrap();
+    let claude_only = stdout_json(tycho_pi(&home).args(["blocks", "--json"]));
+    assert!(claude_only["blocks"].as_array().unwrap().is_empty());
+
+    let widened = stdout_json(tycho_pi(&home).args(["blocks", "--json", "--provider", "pi"]));
+    assert_eq!(widened["blocks"].as_array().unwrap().len(), 1);
+}

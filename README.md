@@ -6,8 +6,8 @@
 
 Fast, privacy-first usage analytics for local AI tool transcripts and response
 logs: tokens, cost, cache economics, and trends by day, project, session, and
-model. It scans [Claude Code](https://code.claude.com), Codex, and readable
-OpenAI JSONL usage records. Think `iostat` for AI spend.
+model. It scans [Claude Code](https://code.claude.com), Codex, Pi, and
+readable OpenAI JSONL usage records. Think `iostat` for AI spend.
 
 ![tycho demo: the daily, cache, and blocks reports](demo.gif)
 
@@ -108,8 +108,8 @@ the hour) and spans five hours; a new block begins at the next message once
 that window closes. For the block containing "now", tycho projects where its
 cost lands if the current rate holds — `$2.05 so far, ~$4.10 projected by
 17:00`. Since the 5-hour reset is a Claude-specific mechanic, `blocks`
-defaults to Claude events only; pass `--provider codex` or `--provider openai`
-to switch it to another provider's events, or `--provider all` to include
+defaults to Claude events only; pass `--provider codex`, `--provider pi`, or
+`--provider openai` to switch it to another provider's events, or `--provider all` to include
 every provider. Honors the usual filters and `--json`; `--csv` is not
 supported.
 
@@ -139,7 +139,7 @@ corrupts a pipe and can feed a status bar or script.
 
 Global flags on every command: `--dir <PATH>` (repeatable; replaces default
 search roots), `--since`/`--until` (inclusive dates in the report timezone),
-`--project <SUBSTR>`, `--model <SUBSTR>`, `--provider claude|codex|openai|all`
+`--project <SUBSTR>`, `--model <SUBSTR>`, `--provider claude|codex|pi|openai|all`
 (filters to one provider's events, or `all` for every provider; `blocks`
 defaults to `claude` and this flag overrides it), `--tz <IANA>`/`--utc`,
 `--mode auto|calculate|display`,
@@ -161,6 +161,9 @@ with the provider that owns its layout:
   `~/.codex/sessions` (Codex).
 - Codex rollouts for archived threads, under `$CODEX_HOME/archived_sessions`
   or `~/.codex/archived_sessions` (Codex).
+- Pi JSONL session logs under `$PI_CODING_AGENT_DIR/sessions` or
+  `~/.pi/agent/sessions` (Pi). `PI_CODING_AGENT_DIR` names Pi's *agent*
+  directory, so when set it replaces `~/.pi/agent` whole.
 
 Claude Code resolves its config directory from the running environment's home
 (`CLAUDE_CONFIG_DIR`, else `~/.claude`) with no platform-specific branch, so
@@ -176,7 +179,8 @@ CLAUDE_CONFIG_DIR=$HOME/.claude,/mnt/c/Users/<you>/.claude tycho
 ```
 
 Claude roots parse only Claude's `assistant` records; Codex roots parse only
-Codex's token-count records. `--dir <PATH>` (repeatable) replaces the default
+Codex's token-count records; Pi roots parse only its `message` records whose
+role is `assistant`. `--dir <PATH>` (repeatable) replaces the default
 roots entirely with your own directories, tagged `External`; those are
 format-sniffed line by line — tycho tries the Claude shape, then Codex's, then
 falls back to a standalone OpenAI Responses API or Chat Completions record,

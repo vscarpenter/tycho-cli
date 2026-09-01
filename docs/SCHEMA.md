@@ -8,6 +8,9 @@ corrected the span first sampled by mtime.)
 
 The Codex/OpenAI section was added 2026-07-08 from structure-only inspection of
 local Codex JSONL sessions plus OpenAI's public prompt-caching usage examples.
+The Pi section was added 2026-08-31 from structure-only inspection of 10 local
+Pi session files (275 assistant records, 6 models) plus Pi's own bundled
+`getAgentDir()` / `getDefaultSessionDirPath()` implementations.
 No message content is parsed. Per the project rule, no field is parsed unless
 it appears here or in the referenced docs. If reality and this document ever
 disagree, reality wins: update this file and flag it.
@@ -22,6 +25,7 @@ line is sniffed:
 |---|---|---|
 | `Claude` | `~/.claude/projects` (+ `CLAUDE_CONFIG_DIR` entries), the Xcode `CodingAssistant` location | Only `assistant` records |
 | `Codex` | `sessions` and `archived_sessions` under `$CODEX_HOME`, or under `~/.codex` when unset/empty | Only `event_msg` records where `payload.type == "token_count"` |
+| `Pi` | `sessions` under `$PI_CODING_AGENT_DIR`, or under `~/.pi/agent` when unset/empty | Only `message` records where `message.role == "assistant"` |
 | `External` | Any `--dir <PATH>` (repeatable; replaces the default roots entirely) | Format-sniffed per line: try the Claude `assistant` shape, then the Codex envelope, then a standalone OpenAI record — gated only on a top-level `usage` object being present |
 
 Under an `External` root the parser tries the Claude and Codex shapes first,
@@ -29,7 +33,7 @@ then falls back to recognizing a standalone OpenAI record by the presence of a
 top-level `usage` object alone. Because that last step is usage-gated rather
 than shape-gated, a `--dir` directory should contain only usage logs: any
 foreign JSONL line that happens to carry a `usage` object is counted as an
-event. `--provider claude|codex|openai|all` filters any report by the format
+event. `--provider claude|codex|pi|openai|all` filters any report by the format
 that actually parsed each event, not by the root it was discovered under — a
 Claude-shaped line found via `--dir` still counts as `claude`, never `openai`;
 `all` applies no provider filter. `blocks` defaults to `claude` (it mirrors
@@ -93,6 +97,84 @@ The macOS ChatGPT desktop app currently stores conversation data under
 the inspected machine. Those files are not scanned by default. Plain JSONL logs
 or exports containing OpenAI Responses API or Chat Completions response objects
 can be scanned with `--dir`.
+
+## Pi file layout
+
+Pi writes one JSONL file per session under its agent directory:
+
+```
+~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<session-uuid>.jsonl
+$PI_CODING_AGENT_DIR/sessions/<encoded-cwd>/<timestamp>_<session-uuid>.jsonl
+```
+
+`PI_CODING_AGENT_DIR` names the *agent* directory itself, not a `.pi` parent,
+so when set it replaces `~/.pi/agent` whole. (Pi's `getAgentDir()` expands a
+leading `~` in that value; tycho does not, matching its existing `CODEX_HOME`
+behavior.)
+
+`<encoded-cwd>` is Pi's own encoding — the working directory with its leading
+separator stripped, `/`, `\` and `:` replaced by `-`, and the whole wrapped in
+`--`, e.g. `--Users-vinny-Projects-gsd--`. That differs from Claude Code's
+encoding, so using it as the project name would split one repository across two
+rows. Discovery assigns the placeholder `(pi)` instead, and the real project
+comes from the session record's `cwd` (below), run through the same encoding
+Claude Code and Codex use.
+
+Pi has no `archived_sessions` analogue; one root covers it.
+
+## Pi record types
+
+Four `type` values observed: `session`, `message`, `model_change`,
+`thinking_level_change`. Only two matter:
+
+```jsonc
+// First line of every file. Supplies the session id and project.
+{"type":"session","version":3,"id":"<session-uuid>",
+ "timestamp":"2026-09-01T02:20:35.221Z","cwd":"/Users/v/Projects/gsd"}
+
+// One line per message. Only role == "assistant" carries usage.
+{"type":"message","id":"182b565f","parentId":"8ab16607",
+ "timestamp":"2026-05-02T03:15:28.140Z",
+ "message":{"role":"assistant","api":"bedrock-converse-stream",
+  "provider":"amazon-bedrock","model":"us.anthropic.claude-opus-4-6-v1",
+  "usage":{"input":3,"output":46,"cacheRead":0,"cacheWrite":7491,
+           "reasoning":0,"totalTokens":7540,
+           "cost":{"input":0.000015,"output":0.00115,"cacheRead":0,
+                   "cacheWrite":0.04681875,"total":0.04798375}},
+  "stopReason":"stop","timestamp":1777691725838}}
+```
+
+Both `cwd` and the session `id` are top-level fields, unlike Codex's, which
+live under `payload`. `message.model` is present on every assistant record, so
+no model context has to be carried across lines the way Codex's `turn_context`
+requires.
+
+Three details are load-bearing:
+
+- **Timestamps come from the top-level `timestamp` (RFC3339), never
+  `message.timestamp`.** That inner value is epoch *milliseconds*
+  (`1777691725838`), which fails the year-2100 bound in `bounded_epoch` and
+  would drop every event as `MissingTimestamp`.
+- **The dedup key is namespaced by session** — `pi:<session>:<id>`. Pi's
+  per-record `id` is 8 hex characters; across a large corpus, bare 32-bit ids
+  invite birthday collisions, and under ADR 0002 a collision silently deletes
+  the loser's spend rather than double-counting it.
+- **`usage.cost.total` is mapped onto the same `cost_usd` field Claude Code's
+  `costUSD` feeds**, so the default `auto` cost mode uses Pi's own figure. It
+  is the only truthful source for Bedrock-prefixed ids such as
+  `us.anthropic.claude-opus-4-6-v1`, which the pricing table's prefix rule
+  cannot resolve onto `claude-opus-4-6`. `--mode calculate` ignores it.
+
+Pi's usage field names (`input`, `output`, `cacheRead`, `cacheWrite`) are
+parsed as distinct fields rather than serde aliases onto the Claude/OpenAI
+names, so a bare `input` key in some other format cannot be mistaken for a
+token count (ADR 0003).
+
+**Accuracy caveat:** Pi records a single `cacheWrite` with no TTL breakdown,
+so the whole count is priced at the 5-minute rate. `tycho cache`'s
+"% of writes used the 1-hour TTL" line therefore treats Pi writes as known-5m
+when they are truly unknown. The error is conservative: 5-minute is both
+Anthropic's default TTL and the cheaper rate (1.25x vs 2x base input).
 
 ## Claude Code record types
 
