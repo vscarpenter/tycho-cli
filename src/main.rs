@@ -129,10 +129,12 @@ fn resolve_roots(cli: &Cli) -> anyhow::Result<Vec<SearchRoot>> {
     let home = std::env::home_dir().context("cannot determine the home directory")?;
     let claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
     let codex_home = std::env::var("CODEX_HOME").ok();
+    let pi_agent_dir = std::env::var("PI_CODING_AGENT_DIR").ok();
     Ok(discover::default_roots(
         &home,
         claude_config_dir.as_deref(),
         codex_home.as_deref(),
+        pi_agent_dir.as_deref(),
     ))
 }
 
@@ -306,6 +308,12 @@ mod tests {
         assert_eq!(
             effective_provider(false, Some(ProviderArg::Openai)),
             Some(Provider::External)
+        );
+        // Pi is not a 5-hour-block provider, so blocks keeps its Claude
+        // default; --provider pi opts in explicitly.
+        assert_eq!(
+            effective_provider(true, Some(ProviderArg::Pi)),
+            Some(Provider::Pi)
         );
     }
 

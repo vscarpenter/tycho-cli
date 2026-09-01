@@ -175,6 +175,7 @@ struct RawRecord {
     #[serde(alias = "request_id")]
     request_id: Option<String>,
     is_api_error_message: Option<bool>,
+    cwd: Option<String>,
     #[serde(rename = "costUSD")]
     cost_usd: Option<f64>,
     message: Option<RawMessage>,
@@ -185,6 +186,7 @@ struct RawRecord {
 #[derive(Deserialize)]
 struct RawMessage {
     id: Option<String>,
+    role: Option<String>,
     model: Option<String>,
     usage: Option<RawUsage>,
 }
@@ -201,6 +203,24 @@ struct RawUsage {
     cache_creation: Option<RawCacheCreation>,
     input_tokens_details: Option<RawTokenDetails>,
     prompt_tokens_details: Option<RawTokenDetails>,
+    // Pi's names. Distinct fields rather than serde aliases on the ones
+    // above: aliasing `input` onto `input_tokens` would let a bare `input`
+    // key match in every format and weaken the discrimination the External
+    // sniffer depends on (ADR 0003).
+    input: Option<u64>,
+    output: Option<u64>,
+    #[serde(rename = "cacheRead")]
+    cache_read: Option<u64>,
+    #[serde(rename = "cacheWrite")]
+    cache_write: Option<u64>,
+    cost: Option<RawPiCost>,
+}
+
+/// Pi's per-message cost breakdown. Only the total is used; the per-bucket
+/// values are Pi's own arithmetic over the same token counts tycho parses.
+#[derive(Deserialize)]
+struct RawPiCost {
+    total: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -302,6 +322,20 @@ impl RawUsage {
         }
     }
 
+    /// Pi reports uncached input, cache reads, and cache writes as separate
+    /// counts, so no subset arithmetic is needed. There is no TTL
+    /// breakdown, so the whole write is priced at the 5-minute rate — the
+    /// cheaper of the two, documented in docs/SCHEMA.md.
+    fn pi_token_usage(&self) -> TokenUsage {
+        TokenUsage {
+            input: self.input.unwrap_or(0),
+            output: self.output.unwrap_or(0),
+            cache_write_5m: self.cache_write.unwrap_or(0),
+            cache_write_1h: 0,
+            cache_read: self.cache_read.unwrap_or(0),
+        }
+    }
+
     /// OpenAI usage reports cached input as a subset of total input. Keep the
     /// report's total token math intact by splitting total input into uncached
     /// input plus cache reads.
@@ -354,6 +388,8 @@ struct LineParser {
     codex_session_id: Option<String>,
     codex_project: Option<String>,
     codex_model: Option<String>,
+    pi_session_id: Option<String>,
+    pi_project: Option<String>,
     /// The first model any `turn_context` in this file supplied. Distinct
     /// from `codex_model`, which tracks the *current* model and would hold
     /// the last value at end of file.
@@ -369,6 +405,8 @@ impl Default for LineParser {
             codex_session_id: None,
             codex_project: None,
             codex_model: None,
+            pi_session_id: None,
+            pi_project: None,
             first_codex_model: None,
             usage_index: 0,
         }
@@ -401,6 +439,10 @@ impl LineParser {
                 self.parse_codex_token_count(&raw)?
                     .ok_or(SkipReason::NotAssistant)
             }
+            Provider::Pi => {
+                self.capture_pi_context(&raw);
+                self.parse_pi_message(&raw)?.ok_or(SkipReason::NotAssistant)
+            }
             Provider::External => {
                 if raw.record_type.as_deref() == Some("assistant") {
                     return parse_claude_record(raw);
@@ -413,6 +455,72 @@ impl LineParser {
                     .ok_or(SkipReason::NotAssistant)
             }
         }
+    }
+
+    /// Pi opens every session file with a `session` record carrying the
+    /// session uuid and `cwd`. Both are top-level fields, unlike Codex's,
+    /// which live under `payload`.
+    fn capture_pi_context(&mut self, raw: &RawRecord) {
+        if raw.record_type.as_deref() != Some("session") {
+            return;
+        }
+        if let Some(id) = &raw.id {
+            self.pi_session_id = Some(id.clone());
+        }
+        if let Some(cwd) = &raw.cwd {
+            self.pi_project = Some(encode_project(cwd));
+        }
+    }
+
+    /// Pi writes one line per assistant message with `model` and `usage`
+    /// inline, so no model context has to be carried across lines the way
+    /// Codex's `turn_context` requires. `Ok(None)` means "not an assistant
+    /// message"; the caller counts it as `NotAssistant`.
+    fn parse_pi_message(&mut self, raw: &RawRecord) -> Result<Option<UsageEvent>, SkipReason> {
+        if raw.record_type.as_deref() != Some("message") {
+            return Ok(None);
+        }
+        let Some(message) = raw.message.as_ref() else {
+            return Ok(None);
+        };
+        if message.role.as_deref() != Some("assistant") {
+            return Ok(None);
+        }
+        let raw_usage = message.usage.as_ref().ok_or(SkipReason::MissingUsage)?;
+        // The top-level timestamp, never message.timestamp: that one is
+        // epoch milliseconds, which bounded_epoch rejects as out of range.
+        let timestamp = raw
+            .timestamp
+            .as_ref()
+            .and_then(RawTimestamp::to_utc)
+            .ok_or(SkipReason::MissingTimestamp)?;
+        let model = message.model.clone().ok_or(SkipReason::MissingModel)?;
+        let session = self
+            .pi_session_id
+            .clone()
+            .or_else(|| self.fallback_session_id.clone());
+        self.usage_index += 1;
+        let id = raw
+            .id
+            .clone()
+            .unwrap_or_else(|| self.usage_index.to_string());
+        Ok(Some(UsageEvent {
+            timestamp,
+            session_id: session.clone(),
+            project: self.pi_project.clone().unwrap_or_default(),
+            model,
+            usage: raw_usage.pi_token_usage(),
+            cost_usd: raw_usage.cost.as_ref().and_then(|cost| cost.total),
+            cost: rust_decimal::Decimal::ZERO,
+            // Namespaced by session: Pi's `id` is 8 hex characters, and a
+            // 32-bit collision across sessions would silently delete the
+            // loser's spend under ADR 0002.
+            dedup_key: DedupKey::Uuid(format!(
+                "pi:{}:{id}",
+                session.as_deref().unwrap_or("(unknown)")
+            )),
+            provider: Provider::Pi,
+        }))
     }
 
     fn capture_codex_context(&mut self, raw: &RawRecord) {
@@ -1080,5 +1188,137 @@ mod tests {
         let scan = parse_file(&path, Provider::External).unwrap();
         assert_eq!(scan.stats.events, 1);
         assert_eq!(scan.stats.malformed, 0);
+    }
+
+    /// A realistic Pi assistant record (synthetic values, real shape from a
+    /// live `~/.pi/agent/sessions` file) with content present, as in real
+    /// data. `message.timestamp` is epoch *milliseconds* and must be
+    /// ignored in favor of the top-level RFC3339 value.
+    const PI_ASSISTANT: &str = r#"{"type":"message","id":"182b565f","parentId":"8ab16607","timestamp":"2026-05-02T03:15:28.140Z","message":{"role":"assistant","api":"bedrock-converse-stream","provider":"amazon-bedrock","model":"us.anthropic.claude-opus-4-6-v1","content":[{"type":"text","text":"SECRET-DO-NOT-PARSE"}],"usage":{"input":3,"output":46,"cacheRead":11,"cacheWrite":7491,"reasoning":0,"totalTokens":7551,"cost":{"input":0.000015,"output":0.00115,"cacheRead":0,"cacheWrite":0.04681875,"total":0.04798375}},"stopReason":"stop","timestamp":1777691725838}}"#;
+
+    const PI_SESSION: &str = r#"{"type":"session","version":3,"id":"01a05ac4-b215-71ee-b7b0-9ffd0969ef08","timestamp":"2026-09-01T02:20:35.221Z","cwd":"/Users/v/Projects/ScratchPad"}"#;
+
+    fn pi_scan(lines: &[&str]) -> FileScan {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("2026-09-01T02-20-35-221Z_01a05ac4.jsonl");
+        std::fs::write(&path, lines.join("\n")).unwrap();
+        parse_file(&path, Provider::Pi).unwrap()
+    }
+
+    #[test]
+    fn parses_a_realistic_pi_assistant_record() {
+        let scan = pi_scan(&[PI_ASSISTANT]);
+        assert_eq!(scan.stats.events, 1);
+        let event = &scan.events[0];
+        assert_eq!(event.model, "us.anthropic.claude-opus-4-6-v1");
+        assert_eq!(event.provider, Provider::Pi);
+        assert_eq!(event.usage.input, 3);
+        assert_eq!(event.usage.output, 46);
+        assert_eq!(event.usage.cache_read, 11);
+        // Top-level RFC3339, not message.timestamp (epoch ms, which
+        // bounded_epoch rejects — every event would drop as MissingTimestamp).
+        assert_eq!(
+            event.timestamp.to_rfc3339(),
+            "2026-05-02T03:15:28.140+00:00"
+        );
+    }
+
+    #[test]
+    fn pi_session_record_supplies_project_and_session_id() {
+        let scan = pi_scan(&[PI_SESSION, PI_ASSISTANT]);
+        assert_eq!(scan.stats.events, 1);
+        let event = &scan.events[0];
+        assert_eq!(event.project, "-Users-v-Projects-ScratchPad");
+        assert_eq!(
+            event.session_id.as_deref(),
+            Some("01a05ac4-b215-71ee-b7b0-9ffd0969ef08")
+        );
+    }
+
+    /// Pi records one `cacheWrite` with no TTL breakdown. It is priced at the
+    /// 5-minute rate — the cheaper of the two, so the error is conservative.
+    #[test]
+    fn pi_cache_write_lands_in_the_5m_bucket() {
+        let scan = pi_scan(&[PI_ASSISTANT]);
+        assert_eq!(scan.events[0].usage.cache_write_5m, 7491);
+        assert_eq!(scan.events[0].usage.cache_write_1h, 0);
+    }
+
+    /// The only truthful cost for a Bedrock-prefixed id: `longest_prefix_match`
+    /// cannot resolve `us.anthropic.claude-opus-4-6-v1` onto `claude-opus-4-6`,
+    /// so without this the pricing table reports $0.
+    #[test]
+    fn pi_cost_total_populates_cost_usd() {
+        let scan = pi_scan(&[PI_ASSISTANT]);
+        assert_eq!(scan.events[0].cost_usd, Some(0.04798375));
+    }
+
+    #[test]
+    fn pi_non_message_records_skip_as_not_assistant() {
+        let scan = pi_scan(&[
+            r#"{"type":"model_change","id":"df179656","timestamp":"2026-09-01T02:20:35.283Z","provider":"ollama","modelId":"glm-5.3:cloud"}"#,
+            r#"{"type":"thinking_level_change","id":"a1","timestamp":"2026-09-01T02:20:35.284Z","thinkingLevel":"medium"}"#,
+        ]);
+        assert_eq!(scan.stats.events, 0);
+        assert_eq!(scan.stats.not_assistant, 2);
+        assert_eq!(scan.stats.malformed, 0);
+    }
+
+    #[test]
+    fn pi_user_and_tool_result_messages_skip_as_not_assistant() {
+        let scan = pi_scan(&[
+            r#"{"type":"message","id":"u1","timestamp":"2026-09-01T02:20:36Z","message":{"role":"user","content":[{"type":"text","text":"SECRET"}]}}"#,
+            r#"{"type":"message","id":"t1","timestamp":"2026-09-01T02:20:37Z","message":{"role":"toolResult","toolName":"bash","isError":false,"content":"SECRET"}}"#,
+        ]);
+        assert_eq!(scan.stats.events, 0);
+        assert_eq!(scan.stats.not_assistant, 2);
+    }
+
+    #[test]
+    fn pi_assistant_record_without_usage_skips() {
+        let scan = pi_scan(&[
+            r#"{"type":"message","id":"a1","timestamp":"2026-09-01T02:20:38Z","message":{"role":"assistant","model":"glm-5.3:cloud"}}"#,
+        ]);
+        assert_eq!(scan.stats.events, 0);
+        assert_eq!(scan.stats.missing_usage, 1);
+    }
+
+    /// Pi's per-record `id` is 8 hex characters. Namespacing the dedup key by
+    /// session is what stops a 32-bit birthday collision across sessions from
+    /// silently deleting one record's spend under ADR 0002.
+    #[test]
+    fn pi_dedup_key_is_namespaced_by_session() {
+        let collide = r#"{"type":"message","id":"182b565f","timestamp":"2026-05-02T03:15:28.140Z","message":{"role":"assistant","model":"glm-5.3:cloud","usage":{"input":1,"output":1}}}"#;
+        let a = pi_scan(&[
+            r#"{"type":"session","id":"sess-A","timestamp":"2026-05-02T03:00:00Z","cwd":"/p"}"#,
+            collide,
+        ]);
+        let b = pi_scan(&[
+            r#"{"type":"session","id":"sess-B","timestamp":"2026-05-02T03:00:00Z","cwd":"/p"}"#,
+            collide,
+        ]);
+        assert_ne!(a.events[0].dedup_key, b.events[0].dedup_key);
+    }
+
+    /// Without a session record the file stem stands in, so two records with
+    /// the same short id in different files still differ.
+    #[test]
+    fn pi_records_without_a_session_header_fall_back_to_the_file_stem() {
+        let scan = pi_scan(&[PI_ASSISTANT]);
+        assert_eq!(
+            scan.events[0].session_id.as_deref(),
+            Some("2026-09-01T02-20-35-221Z_01a05ac4")
+        );
+        assert!(scan.events[0].project.is_empty());
+    }
+
+    #[test]
+    fn a_pi_line_under_a_claude_root_is_not_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sess.jsonl");
+        std::fs::write(&path, PI_ASSISTANT).unwrap();
+        let scan = parse_file(&path, Provider::Claude).unwrap();
+        assert_eq!(scan.stats.events, 0);
+        assert_eq!(scan.stats.not_assistant, 1);
     }
 }

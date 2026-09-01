@@ -164,6 +164,8 @@ pub enum ProviderArg {
     Claude,
     /// Codex CLI transcripts
     Codex,
+    /// Pi coding-agent transcripts
+    Pi,
     /// Other transcripts ingested via `--dir` (discovered as `External`)
     Openai,
     /// Every provider (no filter); use to widen `blocks` past its Claude default
@@ -176,6 +178,7 @@ pub fn map_provider_arg(arg: ProviderArg) -> Option<crate::discover::Provider> {
     match arg {
         ProviderArg::Claude => Some(crate::discover::Provider::Claude),
         ProviderArg::Codex => Some(crate::discover::Provider::Codex),
+        ProviderArg::Pi => Some(crate::discover::Provider::Pi),
         ProviderArg::Openai => Some(crate::discover::Provider::External),
         ProviderArg::All => None,
     }
@@ -315,6 +318,16 @@ mod tests {
     fn provider_flag_parses_before_the_subcommand() {
         let cli = parse(&["--provider", "codex", "daily"]).unwrap();
         assert_eq!(cli.global.provider, Some(ProviderArg::Codex));
+    }
+
+    #[test]
+    fn provider_pi_parses_and_maps_to_the_pi_provider() {
+        let cli = parse(&["--provider", "pi", "models"]).unwrap();
+        assert_eq!(cli.global.provider, Some(ProviderArg::Pi));
+        assert_eq!(
+            map_provider_arg(ProviderArg::Pi),
+            Some(crate::discover::Provider::Pi)
+        );
     }
 
     #[test]

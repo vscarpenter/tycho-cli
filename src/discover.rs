@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 pub enum Provider {
     Claude,
     Codex,
+    Pi,
     External,
 }
 
@@ -51,10 +52,16 @@ pub struct TranscriptFile {
 /// `archived_sessions`, where Codex moves a rollout when its thread is
 /// archived. The archived file keeps the same name and record shape, so
 /// omitting that root would silently drop the spend it recorded.
+///
+/// Pi contributes one root, `sessions` under its agent directory. That
+/// directory is `PI_CODING_AGENT_DIR` when set and `~/.pi/agent` otherwise
+/// — the env var names the agent directory itself, not a `.pi` parent, so
+/// it replaces the whole base rather than standing in for `home`.
 pub fn default_roots(
     home: &Path,
     claude_config_dir: Option<&str>,
     codex_home: Option<&str>,
+    pi_agent_dir: Option<&str>,
 ) -> Vec<SearchRoot> {
     let claude_paths: Vec<PathBuf> = match claude_config_dir {
         Some(dirs) => dirs
@@ -99,6 +106,15 @@ pub fn default_roots(
             provider: Provider::Codex,
         });
     }
+    let pi_base = pi_agent_dir
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".pi").join("agent"));
+    roots.push(SearchRoot {
+        path: pi_base.join("sessions"),
+        provider: Provider::Pi,
+    });
     roots
 }
 
@@ -188,11 +204,14 @@ pub fn discover(roots: &[SearchRoot]) -> Vec<TranscriptFile> {
 
 /// The first directory component below the root is the encoded project
 /// name for Claude-layout roots. Codex roots are date-sharded
-/// (`sessions/<yyyy>/<mm>/<dd>/`), so their files get the `(codex)`
+/// (`sessions/<yyyy>/<mm>/<dd>/`) and Pi encodes its project directories
+/// differently (`--Users-v-Projects-gsd--`), so files under both get a
 /// placeholder; the real project comes from record metadata during the scan.
 fn project_name(root: &Path, provider: Provider, file: &Path) -> String {
-    if provider == Provider::Codex {
-        return "(codex)".to_owned();
+    match provider {
+        Provider::Codex => return "(codex)".to_owned(),
+        Provider::Pi => return "(pi)".to_owned(),
+        Provider::Claude | Provider::External => {}
     }
     file.strip_prefix(root)
         .ok()
@@ -315,7 +334,7 @@ mod tests {
 
     #[test]
     fn default_roots_tag_providers() {
-        let roots = default_roots(Path::new("/Users/v"), None, None);
+        let roots = default_roots(Path::new("/Users/v"), None, None, None);
         assert_eq!(
             roots,
             vec![
@@ -337,6 +356,10 @@ mod tests {
                     path: PathBuf::from("/Users/v/.codex/archived_sessions"),
                     provider: Provider::Codex
                 },
+                SearchRoot {
+                    path: PathBuf::from("/Users/v/.pi/agent/sessions"),
+                    provider: Provider::Pi
+                },
             ]
         );
     }
@@ -347,7 +370,7 @@ mod tests {
     /// still *resolves* on Windows but prints with mixed separators.
     #[test]
     fn default_roots_are_built_one_component_at_a_time() {
-        let roots = default_roots(Path::new("/Users/v"), None, None);
+        let roots = default_roots(Path::new("/Users/v"), None, None, None);
         // Only Normal components: the root/prefix component is legitimately
         // the separator itself ("/" on Unix, "C:\" on Windows).
         for root in &roots {
@@ -379,6 +402,7 @@ mod tests {
             Path::new("/Users/v"),
             Some("/cfg/a, /cfg/b,"),
             Some("/codex"),
+            None,
         );
         assert_eq!(
             roots,
@@ -405,6 +429,10 @@ mod tests {
                     path: PathBuf::from("/codex/archived_sessions"),
                     provider: Provider::Codex
                 },
+                SearchRoot {
+                    path: PathBuf::from("/Users/v/.pi/agent/sessions"),
+                    provider: Provider::Pi
+                },
             ]
         );
     }
@@ -414,7 +442,7 @@ mod tests {
         // A set-but-empty CODEX_HOME must not yield relative "sessions" or
         // "archived_sessions" roots.
         for value in ["", "   "] {
-            let roots = default_roots(Path::new("/Users/v"), None, Some(value));
+            let roots = default_roots(Path::new("/Users/v"), None, Some(value), None);
             for expected in [
                 "/Users/v/.codex/sessions",
                 "/Users/v/.codex/archived_sessions",
@@ -511,5 +539,63 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].project, "(codex)");
         assert_eq!(found[0].provider, Provider::Codex);
+    }
+
+    #[test]
+    fn default_roots_include_the_pi_sessions_root() {
+        let roots = default_roots(Path::new("/Users/v"), None, None, None);
+        assert!(roots.contains(&SearchRoot {
+            path: PathBuf::from("/Users/v/.pi/agent/sessions"),
+            provider: Provider::Pi,
+        }));
+    }
+
+    /// Pi's `PI_CODING_AGENT_DIR` names the *agent* directory, not a `.pi`
+    /// parent, so it replaces `~/.pi/agent` whole rather than standing in
+    /// for the home component.
+    #[test]
+    fn pi_agent_dir_env_replaces_the_default_pi_root() {
+        let roots = default_roots(Path::new("/Users/v"), None, None, Some("/elsewhere/agent"));
+        assert!(roots.contains(&SearchRoot {
+            path: PathBuf::from("/elsewhere/agent/sessions"),
+            provider: Provider::Pi,
+        }));
+        assert!(
+            !roots.iter().any(|r| r.provider == Provider::Pi
+                && r.path == Path::new("/Users/v/.pi/agent/sessions"))
+        );
+    }
+
+    #[test]
+    fn empty_pi_agent_dir_falls_back_to_home_pi_agent() {
+        // A set-but-empty value must not yield a relative "sessions" root.
+        for value in ["", "   "] {
+            let roots = default_roots(Path::new("/Users/v"), None, None, Some(value));
+            assert!(
+                roots
+                    .iter()
+                    .any(|r| r.path == Path::new("/Users/v/.pi/agent/sessions"))
+            );
+        }
+    }
+
+    /// Pi's per-project directory encoding (`--Users-v-Projects-gsd--`)
+    /// differs from Claude's, so using it as the project name would split one
+    /// repo across two rows. The real project comes from the session
+    /// record's `cwd` during the scan; discovery only supplies the
+    /// placeholder.
+    #[test]
+    fn pi_root_files_get_placeholder_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let proj = dir.path().join("--Users-v-Projects-gsd--");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(proj.join("2026-09-01T02-20-35-221Z_abc.jsonl"), "{}\n").unwrap();
+        let found = discover(&[SearchRoot {
+            path: dir.path().to_path_buf(),
+            provider: Provider::Pi,
+        }]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].project, "(pi)");
+        assert_eq!(found[0].provider, Provider::Pi);
     }
 }
