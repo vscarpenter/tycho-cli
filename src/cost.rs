@@ -13,7 +13,8 @@ use crate::record::{TokenUsage, UsageEvent};
 /// How costs are derived, mirroring ccusage semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CostMode {
-    /// Use a record's `costUSD` when present, else calculate (the default).
+    /// Use a record's `costUSD` when present and non-zero, else calculate
+    /// (the default). A recorded zero is treated as absent — see `cost`.
     #[default]
     Auto,
     /// Always calculate from tokens and the pricing table.
@@ -53,9 +54,14 @@ impl<'a> Coster<'a> {
         match self.mode {
             CostMode::Calculate => calculated(),
             CostMode::Display => recorded(event.cost_usd),
+            // A recorded cost of exactly zero means the writing tool did not
+            // know the rate, not that the request was free: Pi stamps 0 on
+            // every Ollama model, including metered `:cloud` ones. Fall
+            // through to the table. A genuinely free model has no entry
+            // there, so calculating still yields zero.
             CostMode::Auto => match event.cost_usd {
-                Some(value) => recorded(Some(value)),
-                None => calculated(),
+                Some(value) if value != 0.0 => recorded(Some(value)),
+                _ => calculated(),
             },
         }
     }
@@ -317,6 +323,44 @@ mod tests {
         ];
         assert_eq!(coster.cost(&events[0]), Decimal::ZERO);
         assert_eq!(unknown_models(&events, &table), ["mystery-model-9"]);
+    }
+
+    /// Ollama Cloud is metered, so `glm-5.3:cloud` is NOT a local model even
+    /// though its id has a ':'. An explicit rate entry is what separates the
+    /// two: the local rule only applies to ':' ids with no entry.
+    /// A recorded cost of exactly zero means "the tool that wrote this did
+    /// not know the rate", not "this was free". Pi writes 0 for every Ollama
+    /// model, so trusting it would report metered cloud spend as $0 under the
+    /// default mode. Auto falls through to the table instead; a genuinely
+    /// free model has no entry, so it still costs nothing.
+    #[test]
+    fn auto_mode_falls_through_a_recorded_zero_to_the_table() {
+        let table = PricingTable::embedded();
+        let coster = Coster::new(&table, CostMode::Auto);
+        let cloud = event("glm-5.3:cloud", Some(0.0));
+        assert!(
+            coster.cost(&cloud) > Decimal::ZERO,
+            "a recorded 0 must not mask metered cloud rates"
+        );
+        // A non-zero recorded cost is still preferred over the table.
+        let bedrock = event("us.anthropic.claude-opus-4-6-v1", Some(0.5));
+        assert_eq!(coster.cost(&bedrock), dec("0.5"));
+        // Genuinely local: recorded 0, no table entry, still free.
+        let local = event("qwen3.8:27b", Some(0.0));
+        assert_eq!(coster.cost(&local), Decimal::ZERO);
+    }
+
+    #[test]
+    fn metered_ollama_cloud_ids_are_not_treated_as_local() {
+        let table = PricingTable::embedded();
+        let events = vec![event("glm-5.3:cloud", None), event("qwen3.8:27b", None)];
+        assert_eq!(local_models(&events, &table), vec!["qwen3.8:27b"]);
+        let coster = Coster::new(&table, CostMode::Calculate);
+        assert!(
+            coster.cost(&events[0]) > Decimal::ZERO,
+            "cloud spend must cost"
+        );
+        assert_eq!(coster.cost(&events[1]), Decimal::ZERO, "local stays free");
     }
 
     #[test]

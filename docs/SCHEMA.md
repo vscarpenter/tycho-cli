@@ -160,7 +160,8 @@ Three details are load-bearing:
   invite birthday collisions, and under ADR 0002 a collision silently deletes
   the loser's spend rather than double-counting it.
 - **`usage.cost.total` is mapped onto the same `cost_usd` field Claude Code's
-  `costUSD` feeds**, so the default `auto` cost mode uses Pi's own figure. It
+  `costUSD` feeds**, so the default `auto` cost mode uses Pi's own figure
+  whenever it is non-zero. It
   is the only truthful source for Bedrock-prefixed ids such as
   `us.anthropic.claude-opus-4-6-v1`, which the pricing table's prefix rule
   cannot resolve onto `claude-opus-4-6`. `--mode calculate` ignores it.
@@ -418,3 +419,15 @@ skipped as `MissingTimestamp` rather than producing an implausible date.
   no pricing entry at all; `doctor` (table and `--json`, as
   `zero_rated_models`/`local_models`) lists both separately from models that
   are genuinely unpriced.
+- Ollama Cloud is metered, so its ids are priced like any other API model and
+  are NOT treated as local, even though they carry a ':'. The rule is the
+  pricing entry, not the ':': a `name:tag` id counts as local only when the
+  table has no entry for it. Three ids (`gpt-oss:120b`, `gpt-oss:20b`,
+  `qwen3.5:397b`) are billed on Ollama Cloud yet identical to a local pull;
+  tycho prices them as cloud and `pricing/default.toml` documents the
+  override for local use.
+- A recorded cost of exactly zero is treated as *absent* by `auto` mode,
+  which falls through to the pricing table. Pi stamps `usage.cost.total = 0`
+  on every Ollama model including metered `:cloud` ones, so trusting it would
+  report real cloud spend as $0. A genuinely free model has no table entry,
+  so calculating still yields zero.

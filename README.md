@@ -165,6 +165,14 @@ with the provider that owns its layout:
   `~/.pi/agent/sessions` (Pi). `PI_CODING_AGENT_DIR` names Pi's *agent*
   directory, so when set it replaces `~/.pi/agent` whole.
 
+Ollama Cloud models (`glm-5.3:cloud` and friends) are metered per token and
+carry real rates, so their spend appears in every total. Locally-run Ollama
+models — an id with a quantization or size tag and no pricing entry, like
+`qwen3.8:27b` — stay at $0, which is what local inference costs. The three
+ids that are billed on Ollama Cloud but indistinguishable from a local pull
+(`gpt-oss:120b`, `gpt-oss:20b`, `qwen3.5:397b`) are priced as cloud; zero
+them in `~/.config/tycho/pricing.toml` if you run them on your own hardware.
+
 Claude Code resolves its config directory from the running environment's home
 (`CLAUDE_CONFIG_DIR`, else `~/.claude`) with no platform-specific branch, so
 Windows uses `%USERPROFILE%\.claude\projects` and the Claude desktop app's
@@ -222,8 +230,9 @@ entry contributes its tokens and no dollars — a rate is never invented for it,
 which is why `codex-unknown` is deliberately left unmapped.
 
 Cost modes mirror ccusage: `--mode auto` (default) uses a record's
-pre-computed `costUSD` when present and calculates otherwise; `calculate`
-always prices from tokens; `display` only sums recorded `costUSD` values
+pre-computed `costUSD` when present **and non-zero**, and calculates
+otherwise; `calculate` always prices from tokens; `display` only sums
+recorded `costUSD` values
 (modern Claude Code and Codex records don't write `costUSD`, so `display` is
 only meaningful for old transcripts or custom logs that include recorded cost).
 
