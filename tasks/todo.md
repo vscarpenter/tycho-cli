@@ -1,5 +1,49 @@
 # tycho — task state
 
+## Pi provider (2026-08-31) — done, unreleased
+
+Spec `tasks/spec.md`; decision recorded in `docs/adr/0003-pi-provider.md`.
+Pi's transcripts were invisible: not a default root, and the line shape
+matched none of the three formats `Provider::External` sniffs. One machine's
+sessions held 23M uncounted tokens, incl. $89 of `gpt-5.5-pro`.
+
+- [x] 1 — `discover.rs`: `Provider::Pi`, `default_roots` gains `pi_agent_dir`,
+      `project_name` returns the `(pi)` placeholder (`5a510eb`)
+- [x] 2 — `record.rs`: Pi fields on `RawUsage`, `role` on `RawMessage`,
+      `pi_token_usage()`, the `Provider::Pi` parse branch (`5a510eb`)
+- [x] 3 — `cli.rs` + `main.rs`: `ProviderArg::Pi`, `PI_CODING_AGENT_DIR`
+      (`5a510eb`)
+- [x] 4 — `tests/cli.rs` integration + Pi fixture (`c8e4c81`)
+- [x] 5 — `docs/SCHEMA.md` + README: Pi layout, records, cache-TTL caveat
+      (`c8e4c81`)
+- [x] 6 — verified: 210 tests, fmt + clippy(-D warnings) green at each commit
+
+Ground truth: verified against the real `~/.pi/agent/sessions` corpus inside a
+proven-stable read window (see `tasks/lessons.md`) — all six models match an
+independent Python oracle exactly on input, output, cache write, cache read,
+total, and cost. **36,755,778 tokens and $93.29 that tycho previously counted
+at zero**, of which $89.67 is `gpt-5.5-pro` and $3.62 is Bedrock-routed Opus
+priced only because Pi records its own cost.
+
+### Resuming from here
+
+- **Not released:** no version bump, no tag. Pi adds spend to historical
+  totals, so call that out in release notes the way the Codex backfill was.
+- **Deferred by design (spec "Out of scope"):** the External `--dir` sniffer
+  still does not recognize the Pi envelope; the pricing table still cannot
+  resolve Bedrock region prefixes (`us.` / `eu.` / `apac.`), so
+  `--mode calculate` reports $0 for `us.anthropic.*` while the default `auto`
+  mode reports Pi's own figure.
+- **Meta Muse is NOT covered.** Its logs are at
+  `~/.local/share/muse/sessions/<yyyy>/<mm>/<dd>/<uuid>/session.jsonl`, an
+  event-sourced envelope with usage nested at `payload.event.record.quantity`
+  under `payload_type: "runtime.session"`, no model id on the usage record (it
+  comes from separate `run.model.configured` events), and microsecond-epoch
+  `recorded_at` that `bounded_epoch` rejects. Needs its own design.
+- **Unrelated and still open:** `pricing/default.toml` notes Sonnet 5 intro
+  pricing ends 2026-08-31 — that is today; the bump to $3/$15 is untouched
+  by this work.
+
 ## Phase plan (spec §10)
 
 - [x] Phase 0 — recon, `docs/SCHEMA.md`, plan sign-off (2026-07-04)
