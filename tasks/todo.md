@@ -1,5 +1,42 @@
 # tycho — task state
 
+## Ollama Cloud pricing (2026-08-31) — done
+
+Prompted by Vinny sharing ollama.com's pricing table. Ollama Cloud is metered
+per token, but every one of its ids carries a ':' and so fell under the
+local-model rule that reports `name:tag` ids at $0. That hid 32.9M tokens of
+`glm-5.3:cloud`.
+
+- [x] `pricing/default.toml`: all 19 published rows plus their `<name>:cloud`
+      twins (`68ba1e2`). The twin is load-bearing — lookup needs a '-'
+      boundary, so the key `glm-5.3` does NOT match the id `glm-5.3:cloud`.
+- [x] `auto` mode falls through a recorded cost of exactly zero (`4332134`).
+
+**No heuristic changed.** The rule was already "a ':' id with *no pricing
+entry* is local", so an explicit entry is sufficient and local tags keep
+their correct $0. A regression test pins that `gemma4:12b` never resolves
+onto the new `gemma4` stanza one '-' boundary away.
+
+The second commit was the non-obvious half: pricing data alone left the
+default report at $0, because Pi stamps `usage.cost.total = 0` on all 211 of
+its Ollama records and `auto` preferred that over the table. Default-mode
+effect: `glm-5.3:cloud` $0.00 -> $46.59; Bedrock Opus $3.62 unchanged
+(non-zero, still preferred); local tags $0.00 unchanged (no entry).
+
+### Resuming from here
+
+- **`auto`'s contract changed for every provider**, not just Pi: a record
+  carrying `costUSD: 0` on a priced model now gets table rates. README and
+  `docs/SCHEMA.md` state it.
+- **Three ids are knowingly ambiguous.** `gpt-oss:120b`, `gpt-oss:20b` and
+  `qwen3.5:397b` are billed on Ollama Cloud but identical to a local pull.
+  Vinny chose to price them as cloud; the local-override recipe is in
+  `pricing/default.toml` at the point someone would need it. If local runs of
+  those ever show up in the corpus, revisit.
+- **Cache-write rates are 0, deliberately.** Ollama publishes no write rate;
+  deriving one from the 1.25x/2x input multipliers would be a guess printed
+  as a number. Revisit only if Ollama publishes one.
+
 ## Pi provider (2026-08-31) — done, unreleased
 
 Spec `tasks/spec.md`; decision recorded in `docs/adr/0003-pi-provider.md`.
