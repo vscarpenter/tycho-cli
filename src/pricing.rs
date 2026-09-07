@@ -155,6 +155,8 @@ mod tests {
         for model in [
             "claude-fable-5",
             "claude-mythos-5",
+            "claude-fable-5-1",
+            "claude-mythos-5-1",
             "claude-opus-5",
             "claude-opus-4-8",
             "claude-opus-4-7",
@@ -164,6 +166,8 @@ mod tests {
             "gpt-5.6-sol",
             "gpt-5.6-terra",
             "gpt-5.6-luna",
+            "gpt-6-astra",
+            "gpt-5.6-cyber",
             "gpt-5.5",
             "gpt-5.5-pro",
             "gpt-5.4-mini",
@@ -175,6 +179,13 @@ mod tests {
             "codex-auto-review",
             "codex-unknown",
             "gpt-5-chat-latest",
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "muse-spark-1.3",
+            "muse-spark-1.3-contributor",
+            "grok-4.6",
+            "qwen3.8-max",
+            "qwen3.8-flash",
         ] {
             assert!(table.lookup(model).is_some(), "missing rates for {model}");
         }
@@ -203,9 +214,9 @@ mod tests {
         let pro = table.lookup("gpt-5.5-pro").unwrap();
         assert_eq!(pro.input, dec("30"));
         let luna = table.lookup("gpt-5.6-luna").unwrap();
-        assert_eq!(luna.input, dec("1"));
-        assert_eq!(luna.output, dec("6"));
-        assert_eq!(luna.cache_read, dec("0.1"));
+        assert_eq!(luna.input, dec("0.2"));
+        assert_eq!(luna.output, dec("1.2"));
+        assert_eq!(luna.cache_read, dec("0.02"));
         // gpt-5.1-codex-max has no stanza of its own; it resolves via the
         // '-' boundary onto gpt-5.1-codex, which is zero-rated.
         let legacy = table.lookup("gpt-5.1-codex-max").unwrap();
@@ -256,6 +267,116 @@ mod tests {
                 "{local} must stay unpriced: it is local inference, billed at nothing"
             );
         }
+    }
+
+    /// Fable 5.1 bills cache reads at 0.025x input, not the 0.1x every other
+    /// model uses. Without its own stanza the '-' boundary would resolve
+    /// `claude-fable-5-1` onto `claude-fable-5` and charge $1 where Anthropic
+    /// charges $0.25.
+    #[test]
+    fn fable_5_1_carries_its_own_cache_read_rate() {
+        let table = PricingTable::embedded();
+        let fable51 = table.lookup("claude-fable-5-1").unwrap();
+        assert_eq!(fable51.input, dec("10"));
+        assert_eq!(fable51.output, dec("50"));
+        assert_eq!(fable51.cache_write_5m, dec("12.5"));
+        assert_eq!(fable51.cache_write_1h, dec("20"));
+        assert_eq!(fable51.cache_read, dec("0.25"));
+        assert_eq!(
+            table.lookup("claude-mythos-5-1").unwrap().cache_read,
+            dec("0.25")
+        );
+        // The 5.0 stanza keeps the standard multiplier.
+        assert_eq!(table.lookup("claude-fable-5").unwrap().cache_read, dec("1"));
+    }
+
+    /// OpenAI's flagship rate card prints a cache-write column at 1.25x input,
+    /// and the GPT-5.6 family was repriced after the July verification.
+    #[test]
+    fn openai_flagships_carry_the_september_rate_card() {
+        let table = PricingTable::embedded();
+        let astra = table.lookup("gpt-6-astra").unwrap();
+        assert_eq!(astra.input, dec("10"));
+        assert_eq!(astra.output, dec("50"));
+        assert_eq!(astra.cache_write_5m, dec("12.5"));
+        assert_eq!(astra.cache_write_1h, dec("12.5"));
+        assert_eq!(astra.cache_read, dec("1"));
+        let sol = table.lookup("gpt-5.6-sol").unwrap();
+        assert_eq!(sol.input, dec("4"));
+        assert_eq!(sol.output, dec("20"));
+        assert_eq!(sol.cache_write_5m, dec("5"));
+        assert_eq!(sol.cache_read, dec("0.4"));
+        // Daybreak aliases track whatever they currently point at.
+        assert_eq!(
+            table.lookup("gpt-daybreak-blue-latest").unwrap().input,
+            dec("4")
+        );
+        assert_eq!(
+            table.lookup("gpt-daybreak-red-latest").unwrap().input,
+            dec("12.5")
+        );
+    }
+
+    /// Two "cyber" variants, two different answers. gpt-5.6-cyber has a
+    /// published rate and is priced. gemini-3.8-flash-cyber is a restricted
+    /// program with no public rate, so it is zero-rated with a shadow
+    /// reference — without its own stanza the '-' boundary would bill it at
+    /// Flash rates, a guess printed as a number.
+    #[test]
+    fn cyber_variants_never_inherit_their_base_model_rate() {
+        let table = PricingTable::embedded();
+        let cyber = table.lookup("gpt-5.6-cyber").unwrap();
+        assert_eq!(cyber.input, dec("12.5"));
+        assert_eq!(cyber.output, dec("75"));
+        assert_eq!(cyber.cache_write_5m, dec("15.625"));
+        assert_eq!(cyber.cache_read, dec("1.25"));
+        let flash = table.lookup("gemini-3.8-flash").unwrap();
+        assert_eq!(flash.input, dec("0.75"));
+        assert_eq!(flash.output, dec("3.75"));
+        assert_eq!(flash.cache_read, dec("0.075"));
+        let flash_cyber = table.lookup("gemini-3.8-flash-cyber").unwrap();
+        assert_eq!(flash_cyber.input, dec("0"));
+        assert_eq!(flash_cyber.output, dec("0"));
+        assert_eq!(
+            table.shadow_reference("gemini-3.8-flash-cyber"),
+            Some("gemini-3.8-flash")
+        );
+    }
+
+    /// Meta's contributor tier sits one '-' boundary past the standard id, so
+    /// it needs its own stanza or `muse-spark-1.3-contributor` bills at 12.5x
+    /// what Meta charges.
+    #[test]
+    fn muse_contributor_tier_does_not_inherit_the_standard_rate() {
+        let table = PricingTable::embedded();
+        let standard = table.lookup("muse-spark-1.3").unwrap();
+        assert_eq!(standard.input, dec("1.25"));
+        assert_eq!(standard.output, dec("4.25"));
+        assert_eq!(standard.cache_read, dec("0.15"));
+        let contributor = table.lookup("muse-spark-1.3-contributor").unwrap();
+        assert_eq!(contributor.input, dec("0.1"));
+        assert_eq!(contributor.output, dec("0.2"));
+        assert_eq!(contributor.cache_read, dec("0.002"));
+    }
+
+    /// Model Studio snapshot ids (`qwen3.8-max-0902`) resolve onto the base
+    /// stanza; grok-4.6 carries xAI's short-context row.
+    #[test]
+    fn qwen_snapshots_and_grok_resolve() {
+        let table = PricingTable::embedded();
+        assert_eq!(table.lookup("qwen3.8-max-0902").unwrap().input, dec("2"));
+        assert_eq!(
+            table.lookup("qwen3.8-max-2026-09-02").unwrap().output,
+            dec("6")
+        );
+        let flash = table.lookup("qwen3.8-flash").unwrap();
+        assert_eq!(flash.input, dec("0.15"));
+        assert_eq!(flash.output, dec("0.47"));
+        assert_eq!(flash.cache_read, dec("0.016"));
+        let grok = table.lookup("grok-4.6").unwrap();
+        assert_eq!(grok.input, dec("2"));
+        assert_eq!(grok.output, dec("6"));
+        assert_eq!(grok.cache_read, dec("0.5"));
     }
 
     #[test]

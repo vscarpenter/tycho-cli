@@ -206,10 +206,11 @@ M-series machine.
 
 ## Pricing
 
-A default pricing table (USD per million tokens, including Claude cache-write
-TTL splits and cached-input rates for supported OpenAI models) ships inside
-the binary; its sources and verification date are recorded in
-[`pricing/default.toml`](pricing/default.toml). Override any model — or add
+A default pricing table (USD per million tokens) ships inside the binary. It
+covers Anthropic, OpenAI, Google Gemini, Meta Muse Spark, xAI Grok, Qwen on
+Alibaba Cloud, and Ollama Cloud, including Claude cache-write TTL splits and
+each vendor's cached-input rate; its sources and verification dates are
+recorded in [`pricing/default.toml`](pricing/default.toml). Override any model — or add
 new ones — at `~/.config/tycho/pricing.toml` (or `$XDG_CONFIG_HOME/tycho/`),
 or per run with `--pricing <PATH>`. Models with no pricing entry cost $0,
 warn once on stderr, and are listed by `doctor`.
@@ -249,7 +250,14 @@ only meaningful for old transcripts or custom logs that include recorded cost).
 - Claude fast mode bills at a premium ($10/$50 per million on `claude-opus-5`
   vs. the standard $5/$25) but records the same model id, so tycho can't tell
   the two apart. Override the model if your usage is predominantly fast mode.
-  `claude-sonnet-5` is priced at its introductory rate, which ends 2026-08-31.
+  `claude-sonnet-5`'s $2/$10 launch rate became its permanent price on
+  2026-08-11, so no bump is scheduled.
+- Some built-in rates are dated. Gemini 3.8 and 3.7 Flash carry Google's
+  introductory price through 2026-12-31 (then $1.50/$7.50), `gpt-5.6-sol`
+  carries a promotional rate OpenAI guarantees through at least 2026-11-21,
+  and Ollama's DeepSeek rows are its weekday peak (12:00 to 18:00 UTC) rate
+  with off-peak at half. Override at `~/.config/tycho/pricing.toml` when the
+  calendar or your traffic pattern says otherwise.
 - OpenAI subscription-plan usage is not the same as API invoicing. Built-in
   OpenAI prices estimate API-equivalent token cost; override pricing for long
   context, Batch, Flex, Priority, data residency, or workspace-specific rates.

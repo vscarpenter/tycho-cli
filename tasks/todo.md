@@ -1,5 +1,46 @@
 # tycho — task state
 
+## Pricing refresh: releases 2026-08-07..2026-09-06 (2026-09-06) — done, unreleased
+
+Prompted by Vinny asking for the last 30 days of releases, using
+https://aireleasetracker.com/latest as the list. Every rate was verified
+against the vendor's own card on 2026-09-06; the URLs sit in the block
+comments of `pricing/default.toml`.
+
+- [x] 1 — tracker list read (site is behind a Vercel JS checkpoint;
+      curl and WebFetch get 429, the Chrome extension gets through)
+- [x] 2 — rates collected: Anthropic, OpenAI, Google, Meta, xAI, Alibaba
+      Cloud Model Studio, Ollama Cloud
+- [x] 3 — red: five new pricing tests + the Luna assertions
+- [x] 4 — green: new stanzas, repriced GPT-5.6 family, vendor blocks
+- [x] 5 — fmt + clippy(-D warnings) + 220 tests green
+
+### Resuming from here
+
+- **Not released:** no version bump, no tag. The GPT-5.6 reprice lowers
+  historical Codex/Pi totals for those ids; say so in the release notes.
+- **Fable 5.1 was silently mispriced on cache reads.** `claude-fable-5-1`
+  used to resolve onto `claude-fable-5` and charge $1/M on cache reads;
+  Anthropic bills 0.025x ($0.25). Cache reads dominate agentic sessions,
+  so Fable 5.1 totals drop noticeably after this change.
+- **Three rates carry dates.** Gemini 3.8/3.7 Flash are introductory
+  through 2026-12-31 (then $1.50/$7.50, cache $0.15); `gpt-5.6-sol`'s
+  $4/$20 is promotional through at least 2026-11-21; Ollama's DeepSeek
+  rows are the weekday-peak rate with off-peak at exactly half (values
+  unchanged, now documented). Revisit each on its date.
+- **Knowingly unpriced from the tracker:** Nemotron 3.5 Lightning (free on
+  NVIDIA's endpoint, not on Ollama Cloud, third-party rates vary), Muse
+  Glimmer and Qwen3.8-27B (open weights, local rule). GLM-5.3 and
+  GLM-5.3-Flash were already priced through the Ollama rows and re-verified.
+  DeepSeek-V4-Pro-0813 keeps the `deepseek-v4-pro` id and its Ollama row.
+- **Restricted-program models:** `gpt-5.6-cyber` has a published rate and
+  is priced; `gemini-3.8-flash-cyber` has none and is zero-rated with a
+  `[shadow]` reference, because the '-' boundary would otherwise bill it at
+  Flash rates.
+- **OpenAI cache writes:** the flagship card now prints a 1.25x write
+  column. Codex rollouts record no write tokens, so it only reaches a total
+  through Pi transcripts. Older OpenAI rows still carry write = input.
+
 ## Ollama Cloud pricing (2026-08-31) — done
 
 Prompted by Vinny sharing ollama.com's pricing table. Ollama Cloud is metered
