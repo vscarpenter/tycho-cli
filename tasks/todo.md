@@ -1,6 +1,6 @@
 # tycho — task state
 
-## Pricing refresh: releases 2026-08-07..2026-09-06 (2026-09-06) — done, unreleased
+## Pricing refresh: releases 2026-08-07..2026-09-06 (2026-09-06) — released as v0.9.0
 
 Prompted by Vinny asking for the last 30 days of releases, using
 https://aireleasetracker.com/latest as the list. Every rate was verified
@@ -17,8 +17,11 @@ comments of `pricing/default.toml`.
 
 ### Resuming from here
 
-- **Not released:** no version bump, no tag. The GPT-5.6 reprice lowers
-  historical Codex/Pi totals for those ids; say so in the release notes.
+- **Released 2026-09-07 as v0.9.0** (`4977792`, tag pushed, cargo-dist run
+  34119374326 green, formula on the tap). On the dev corpus 0.8.0 -> 0.9.0
+  moved claude-fable-5-1 $1,240 -> $768, gpt-5.6-sol $3,337 -> $2,600 and
+  gpt-6-astra $0 -> $357 on 255M previously unpriced tokens; total
+  $9,881 -> $9,225.
 - **Fable 5.1 was silently mispriced on cache reads.** `claude-fable-5-1`
   used to resolve onto `claude-fable-5` and charge $1/M on cache reads;
   Anthropic bills 0.025x ($0.25). Cache reads dominate agentic sessions,
