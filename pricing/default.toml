@@ -337,9 +337,11 @@ cache_read = 0.0
 # --- Google Gemini API -------------------------------------------------------
 #
 # Verified 2026-10-02 against https://ai.google.dev/gemini-api/docs/pricing
-# (paid tier). $0.75/$3.75 is introductory pricing for both Flash models
-# through 2026-12-31; from 2027-01-01 Google's published rate is $1.50/$7.50
-# with cache reads at $0.15 — revisit then. Output covers thinking tokens.
+# (paid tier). $0.75/$3.75 is introductory pricing for the 3.8, 3.7, and 3.6
+# Flash models through 2026-12-31; from 2027-01-01 Google's published rate is
+# $1.50/$7.50 with cache reads at $0.15, so revisit then. gemini-3.5-flash
+# carries no introductory rate: it's $1.50/$9 today. Output covers thinking
+# tokens.
 # Google bills explicit-cache creation at the standard input rate plus a
 # per-hour storage fee tycho cannot see, so both write buckets equal input.
 #
@@ -347,6 +349,13 @@ cache_read = 0.0
 # Program and has no published rate. It is zero-rated here on purpose:
 # without its own stanza the '-' boundary would bill it at Flash rates,
 # and [shadow] below points doctor's estimate at gemini-3.8-flash instead.
+#
+# The gemini-3.5-flash key also matches every id one '-' boundary past it,
+# so two guard stanzas sit beside it. gemini-3.5-flash-lite carries its own
+# published rate ($0.30/$2.50). Gemini 3.5 Flash Cyber runs inside Google
+# DeepMind's CodeMender agent with no public rate and no published API id;
+# gemini-3.5-flash-cyber is the id the 3.8 naming implies, zero-rated with a
+# [shadow] reference like its 3.8 sibling. An unused key costs nothing.
 #
 # Gemini 4 Argon (announced 2026-09-30) is deliberately absent. It is
 # Fairwind-only so far, Google's API docs publish no model id for it, and
@@ -370,6 +379,34 @@ cache_write_1h = 0.75
 cache_read = 0.075
 
 [models."gemini-3.8-flash-cyber"]
+input = 0.0
+output = 0.0
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.0
+
+[models."gemini-3.6-flash"]
+input = 0.75
+output = 3.75
+cache_write_5m = 0.75
+cache_write_1h = 0.75
+cache_read = 0.075
+
+[models."gemini-3.5-flash"]
+input = 1.50
+output = 9.0
+cache_write_5m = 1.50
+cache_write_1h = 1.50
+cache_read = 0.15
+
+[models."gemini-3.5-flash-lite"]
+input = 0.30
+output = 2.50
+cache_write_5m = 0.30
+cache_write_1h = 0.30
+cache_read = 0.03
+
+[models."gemini-3.5-flash-cyber"]
 input = 0.0
 output = 0.0
 cache_write_5m = 0.0
@@ -791,3 +828,4 @@ cache_read = 0.60
 # Restricted-program variant with no public rate; its base model is the
 # closest published figure.
 "gemini-3.8-flash-cyber" = "gemini-3.8-flash"
+"gemini-3.5-flash-cyber" = "gemini-3.5-flash"

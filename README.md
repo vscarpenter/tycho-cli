@@ -254,11 +254,11 @@ only meaningful for old transcripts or custom logs that include recorded cost).
   predominantly fast mode.
   `claude-sonnet-5`'s $2/$10 launch rate became its permanent price on
   2026-08-11, so no bump is scheduled.
-- Some built-in rates are dated. Gemini 3.8 and 3.7 Flash carry Google's
-  introductory price through 2026-12-31 (then $1.50/$7.50), `gpt-5.6-sol`
-  carries a promotional rate OpenAI guarantees through at least 2026-11-21,
-  and Ollama's DeepSeek rows are its weekday peak (12:00 to 18:00 UTC) rate
-  with off-peak at half. Override at `~/.config/tycho/pricing.toml` when the
+- Some built-in rates are dated. Gemini 3.8, 3.7, and 3.6 Flash carry
+  Google's introductory price through 2026-12-31 (then $1.50/$7.50),
+  `gpt-5.6-sol` carries a promotional rate OpenAI guarantees through at
+  least 2026-11-21, and Ollama's DeepSeek rows are its weekday peak (12:00
+  to 18:00 UTC) rate with off-peak at half. Override at `~/.config/tycho/pricing.toml` when the
   calendar or your traffic pattern says otherwise.
 - OpenAI subscription-plan usage is not the same as API invoicing. Built-in
   OpenAI prices estimate API-equivalent token cost; override pricing for long

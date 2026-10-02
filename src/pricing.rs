@@ -186,6 +186,9 @@ mod tests {
             "gpt-5-chat-latest",
             "gemini-3.8-flash",
             "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
             "muse-spark-1.3",
             "muse-spark-1.3-contributor",
             "grok-4.7",
@@ -404,6 +407,37 @@ mod tests {
         assert_eq!(
             table.shadow_reference("gemini-3.8-flash-cyber"),
             Some("gemini-3.8-flash")
+        );
+    }
+
+    /// A gemini-3.5-flash key also matches every id one '-' boundary past
+    /// it. Flash-Lite has its own lower rate and the Cyber variant has none,
+    /// so each needs its own stanza or it bills at 3.5 Flash's $1.50/$9.
+    #[test]
+    fn older_gemini_flash_tiers_carry_their_own_rates() {
+        let table = PricingTable::embedded();
+        let flash36 = table.lookup("gemini-3.6-flash").unwrap();
+        assert_eq!(flash36.input, dec("0.75"));
+        assert_eq!(flash36.output, dec("3.75"));
+        assert_eq!(flash36.cache_write_5m, dec("0.75"));
+        assert_eq!(flash36.cache_write_1h, dec("0.75"));
+        assert_eq!(flash36.cache_read, dec("0.075"));
+        let flash35 = table.lookup("gemini-3.5-flash").unwrap();
+        assert_eq!(flash35.input, dec("1.5"));
+        assert_eq!(flash35.output, dec("9"));
+        assert_eq!(flash35.cache_write_5m, dec("1.5"));
+        assert_eq!(flash35.cache_read, dec("0.15"));
+        let lite = table.lookup("gemini-3.5-flash-lite").unwrap();
+        assert_eq!(lite.input, dec("0.3"));
+        assert_eq!(lite.output, dec("2.5"));
+        assert_eq!(lite.cache_write_5m, dec("0.3"));
+        assert_eq!(lite.cache_read, dec("0.03"));
+        let cyber = table.lookup("gemini-3.5-flash-cyber").unwrap();
+        assert_eq!(cyber.input, dec("0"));
+        assert_eq!(cyber.output, dec("0"));
+        assert_eq!(
+            table.shadow_reference("gemini-3.5-flash-cyber"),
+            Some("gemini-3.5-flash")
         );
     }
 
