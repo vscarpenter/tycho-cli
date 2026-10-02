@@ -1,5 +1,23 @@
 # tycho — task state
 
+## gpt-5.5-cyber price fix (2026-10-02), released as v0.10.1
+
+Vinny asked for the fix found during the v0.10.0 round. `gpt-5.5-cyber`
+had no stanza and resolved onto `gpt-5.5` at $5/$30. OpenAI's Cyber table
+lists it at $12.50/$75 with cached input at $1.25, re-verified live on
+2026-10-02. It prints no cache-write charge, so both write buckets match
+input.
+
+- [x] red: the cyber-variants test failed with `left: 5, right: 12.5`
+- [x] green: stanza added (`2495277`); fmt, clippy, and 223 tests green
+- [x] released: bumped to 0.10.1 (`df6189e`), tag v0.10.1, cargo-dist run
+      37024229319 green, formula on the tap at 0.10.1, local `brew
+      upgrade` took 0.10.0 to 0.10.1
+- [x] the installed binary prices a 1M input plus 1M output probe at
+      $87.50 (it was $35 at gpt-5.5 rates)
+
+The dev corpus has no `gpt-5.5-cyber` usage, so its totals don't move.
+
 ## Pricing refresh: releases 2026-09-06 to 2026-10-02 (2026-10-02), released as v0.10.0
 
 Prompted by Vinny asking for the last four weeks of releases and a new
@@ -18,7 +36,7 @@ URLs sit in the block comments of `pricing/default.toml`.
 - [x] 5: fmt, clippy (`--all-targets -D warnings`), and 223 tests green
 - [x] 6: bumped to 0.10.0 (`62eda8d`), pushed main, tag v0.10.0 pushed
 - [x] 7: cargo-dist run 37022685819 green (all 10 jobs), release published
-      with 6 platform archives, formula on the tap at 0.10.0, local
+      with 5 platform archives, formula on the tap at 0.10.0, local
       `brew upgrade` took 0.9.0 to 0.10.0
 
 ### Resuming from here
@@ -40,8 +58,7 @@ URLs sit in the block comments of `pricing/default.toml`.
   rate (through at least 2026-11-21) and the Gemini Flash introductory
   price (through 2026-12-31).
 - **Found outside this task, not acted on:**
-  - `gpt-5.5-cyber` ($12.50/$1.25/$75) sits on OpenAI's Cyber table with
-    no stanza, so it resolves onto `gpt-5.5` and bills $5/$30.
+  - `gpt-5.5-cyber` resolved onto `gpt-5.5`; fixed in v0.10.1 (above).
   - `gemini-3.6-flash` and `gemini-3.5-flash` are on Google's card with no
     stanza (unpriced, not mispriced).
   - The README's OpenAI caveat still says "Priority"; OpenAI renamed it
