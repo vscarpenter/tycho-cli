@@ -376,7 +376,8 @@ mod tests {
     /// published rate and is priced. gemini-3.8-flash-cyber is a restricted
     /// program with no public rate, so it is zero-rated with a shadow
     /// reference — without its own stanza the '-' boundary would bill it at
-    /// Flash rates, a guess printed as a number.
+    /// Flash rates, a guess printed as a number. gpt-5.5-cyber has a
+    /// published rate too; without its stanza it billed at gpt-5.5's $5/$30.
     #[test]
     fn cyber_variants_never_inherit_their_base_model_rate() {
         let table = PricingTable::embedded();
@@ -385,6 +386,14 @@ mod tests {
         assert_eq!(cyber.output, dec("75"));
         assert_eq!(cyber.cache_write_5m, dec("15.625"));
         assert_eq!(cyber.cache_read, dec("1.25"));
+        // OpenAI prints no cache-write charge for 5.5 Cyber, so the write
+        // buckets match input, as on the other pre-5.6 rows.
+        let cyber55 = table.lookup("gpt-5.5-cyber").unwrap();
+        assert_eq!(cyber55.input, dec("12.5"));
+        assert_eq!(cyber55.output, dec("75"));
+        assert_eq!(cyber55.cache_write_5m, dec("12.5"));
+        assert_eq!(cyber55.cache_write_1h, dec("12.5"));
+        assert_eq!(cyber55.cache_read, dec("1.25"));
         let flash = table.lookup("gemini-3.8-flash").unwrap();
         assert_eq!(flash.input, dec("0.75"));
         assert_eq!(flash.output, dec("3.75"));
