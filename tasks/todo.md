@@ -1,5 +1,52 @@
 # tycho — task state
 
+## Pricing refresh: releases 2026-09-06 to 2026-10-02 (2026-10-02), released as v0.10.0
+
+Prompted by Vinny asking for the last four weeks of releases and a new
+Homebrew build. The list came from https://aireleasetracker.com/latest.
+Every rate was verified against the vendor's own card on 2026-10-02; the
+URLs sit in the block comments of `pricing/default.toml`.
+
+- [x] 1: tracker list read (Chrome; 8 releases since the last round)
+- [x] 2: rates collected from Anthropic, OpenAI, xAI, and Ollama Cloud;
+      Google checked and has no Argon row
+- [x] 3: red: three new pricing tests plus coverage-list entries; Opus 5.5
+      failed with `left: 5, right: 4`, proving it billed at Opus 5 rates
+- [x] 4: green: claude-opus-5-5, claude-sonnet-5-5, gpt-6-sol,
+      gpt-6.1-sol, gpt-6-luna, grok-4.7, deepseek-v4.1-flash and its
+      `:cloud` twin (`5e3db2d`)
+- [x] 5: fmt, clippy (`--all-targets -D warnings`), and 223 tests green
+- [x] 6: bumped to 0.10.0 (`62eda8d`), pushed main, tag v0.10.0 pushed
+- [x] 7: cargo-dist run 37022685819 green (all 10 jobs), release published
+      with 6 platform archives, formula on the tap at 0.10.0, local
+      `brew upgrade` took 0.9.0 to 0.10.0
+
+### Resuming from here
+
+- **Opus 5.5 was silently overbilled.** `claude-opus-5-5` resolved onto
+  `claude-opus-5` through the '-' boundary and billed $5/$25 with $0.50
+  cache reads. Anthropic charges $4/$20 and bills cache reads at 0.05x
+  ($0.20). On the dev corpus since 2026-09-01 (`--mode calculate`), Opus
+  5.5 dropped from $494.65 to $276.32 and gpt-6.1-sol rose from $0 to
+  $14.56 on 56M tokens; the total moved from $5,531.82 to $5,328.05.
+- **Gemini 4 Argon is knowingly unpriced.** It's Fairwind-only, Google
+  publishes no API model id, and the rate card has no row. The tracker
+  quotes an announced $2/$10 intro (cached $0.10, then $4/$20). Add a
+  stanza once Google's card lists it with an id.
+- **Ollama dropped three rows** from its table: deepseek-v4-flash, glm-5.1,
+  and qwen3.5:397b. Their stanzas stay at the 2026-09-06 rate so older
+  transcripts keep their spend.
+- **Dates still pending from the last round:** gpt-5.6-sol's promotional
+  rate (through at least 2026-11-21) and the Gemini Flash introductory
+  price (through 2026-12-31).
+- **Found outside this task, not acted on:**
+  - `gpt-5.5-cyber` ($12.50/$1.25/$75) sits on OpenAI's Cyber table with
+    no stanza, so it resolves onto `gpt-5.5` and bills $5/$30.
+  - `gemini-3.6-flash` and `gemini-3.5-flash` are on Google's card with no
+    stanza (unpriced, not mispriced).
+  - The README's OpenAI caveat still says "Priority"; OpenAI renamed it
+    Fast mode on 2026-07-30.
+
 ## Pricing refresh: releases 2026-08-07..2026-09-06 (2026-09-06) — released as v0.9.0
 
 Prompted by Vinny asking for the last 30 days of releases, using
