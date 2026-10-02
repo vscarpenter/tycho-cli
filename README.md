@@ -247,9 +247,11 @@ only meaningful for old transcripts or custom logs that include recorded cost).
 - Claude Code prunes old transcripts based on its `cleanupPeriodDays`
   setting, and Codex/ChatGPT local retention can also change, so history has a
   horizon. `tycho doctor` prints the observed date span.
-- Claude fast mode bills at a premium ($10/$50 per million on `claude-opus-5`
-  vs. the standard $5/$25) but records the same model id, so tycho can't tell
-  the two apart. Override the model if your usage is predominantly fast mode.
+- Claude fast mode bills at a premium: $8/$40 per million on
+  `claude-opus-5-5` against the standard $4/$20, and $10/$50 on
+  `claude-opus-5` against $5/$25. It records the same model id either way,
+  so tycho can't tell the two apart. Override the model if your usage is
+  predominantly fast mode.
   `claude-sonnet-5`'s $2/$10 launch rate became its permanent price on
   2026-08-11, so no bump is scheduled.
 - Some built-in rates are dated. Gemini 3.8 and 3.7 Flash carry Google's

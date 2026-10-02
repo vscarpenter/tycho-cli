@@ -1,14 +1,15 @@
 # tycho default pricing — USD per million tokens.
 #
-# Source: Anthropic model pricing reference, verified 2026-09-06 against
+# Source: Anthropic model pricing reference, verified 2026-10-02 against
 # https://platform.claude.com/docs/en/about-claude/pricing.
 # Cache rates derive from Anthropic's published multipliers on the input
 # rate: 5-minute cache write = 1.25x, 1-hour cache write = 2x, cache
 # read = 0.1x — except claude-fable-5-1 and claude-mythos-5-1, which
-# Anthropic bills at 0.025x for cache reads ($0.25). Those two need their
-# own stanzas: the '-' boundary rule would otherwise resolve
-# claude-fable-5-1 onto claude-fable-5 and charge $1 per million on the
-# bucket that dominates agentic sessions.
+# Anthropic bills at 0.025x for cache reads ($0.25), and claude-opus-5-5
+# at 0.05x ($0.20). Those need their own stanzas: the '-' boundary rule
+# would otherwise resolve claude-fable-5-1 onto claude-fable-5 and
+# claude-opus-5-5 onto claude-opus-5, overcharging on the bucket that
+# dominates agentic sessions (and, for Opus 5.5, on every bucket).
 #
 # claude-sonnet-5 is $2/$10. That began as an introductory rate billed
 # through 2026-08-31, and earlier revisions of this file said to raise it
@@ -17,19 +18,21 @@
 # ~/.config/tycho/pricing.toml or with --pricing <PATH>.
 #
 # Fast mode on claude-opus-5 bills at $10/$50 rather than the standard
-# $5/$25, but the logs record the same model id either way — override
-# claude-opus-5 if your usage is predominantly fast mode.
+# $5/$25 (claude-opus-5-5: $8/$40 rather than $4/$20), but the logs record
+# the same model id either way. Override the stanza if your usage is
+# predominantly fast mode.
 #
 # Model lookup requires a '-' boundary after a prefix key ("gpt-5.4" matches
 # "gpt-5.4-mini" ids but never "gpt-5.41"). Same-family variants with their
 # own rates (e.g. a future gpt-5.5-codex) still need explicit entries —
 # a bare "gpt-5.5" entry would otherwise price them at API rates.
 #
-# OpenAI rates were verified 2026-09-06 against
-# https://developers.openai.com/api/docs/pricing. They use Standard API rates.
+# OpenAI rates were verified 2026-10-02 against
+# https://developers.openai.com/api/docs/pricing (append .md to read the
+# collapsed "All models" rows). They use Standard API rates.
 # For models with separate short/long-context rows, these defaults use the
-# short-context row (gpt-6-astra and the gpt-5.6 family bill 2x input and
-# 1.5x output for the whole request once a prompt passes 272K tokens);
+# short-context row (the gpt-6 and gpt-5.6 families bill 2x input and 1.5x
+# output for the whole request once a prompt passes 272K tokens);
 # override them if your logs should be billed at long-context, Batch, Flex,
 # Fast mode, data-residency, or subscription-plan rates. The flagship rate
 # card prints a cache-write column at 1.25x input, and those stanzas carry
@@ -38,6 +41,10 @@
 # there. Cached input is represented as cache_read either way. Codex
 # rollouts record no cache-write token count at all, so the write rate only
 # reaches a total through Pi's transcripts.
+#
+# gpt-6-sol and gpt-6.1-sol share every rate except cached input, where
+# 6.1 bills half ($0.10 against $0.20). Neither id is a '-' extension of
+# the other, so each carries its own stanza.
 #
 # gpt-5.6-sol's $4/$20 is promotional pricing OpenAI guarantees at least
 # through 2026-11-21; the family was $5/$30, $2.5/$15 and $1/$6 when this
@@ -87,6 +94,13 @@ cache_write_5m = 12.5
 cache_write_1h = 20.0
 cache_read = 1.0
 
+[models."claude-opus-5-5"]
+input = 4.0
+output = 20.0
+cache_write_5m = 5.0
+cache_write_1h = 8.0
+cache_read = 0.20
+
 [models."claude-opus-5"]
 input = 5.0
 output = 25.0
@@ -115,6 +129,13 @@ cache_write_5m = 6.25
 cache_write_1h = 10.0
 cache_read = 0.5
 
+[models."claude-sonnet-5-5"]
+input = 2.0
+output = 10.0
+cache_write_5m = 2.5
+cache_write_1h = 4.0
+cache_read = 0.2
+
 [models."claude-sonnet-5"]
 input = 2.0
 output = 10.0
@@ -142,6 +163,27 @@ output = 50.0
 cache_write_5m = 12.5
 cache_write_1h = 12.5
 cache_read = 1.0
+
+[models."gpt-6.1-sol"]
+input = 2.0
+output = 10.0
+cache_write_5m = 2.5
+cache_write_1h = 2.5
+cache_read = 0.10
+
+[models."gpt-6-sol"]
+input = 2.0
+output = 10.0
+cache_write_5m = 2.5
+cache_write_1h = 2.5
+cache_read = 0.20
+
+[models."gpt-6-luna"]
+input = 0.10
+output = 0.50
+cache_write_5m = 0.125
+cache_write_1h = 0.125
+cache_read = 0.01
 
 [models."gpt-5.6-sol"]
 input = 4.0
@@ -285,7 +327,7 @@ cache_read = 0.0
 
 # --- Google Gemini API -------------------------------------------------------
 #
-# Verified 2026-09-06 against https://ai.google.dev/gemini-api/docs/pricing
+# Verified 2026-10-02 against https://ai.google.dev/gemini-api/docs/pricing
 # (paid tier). $0.75/$3.75 is introductory pricing for both Flash models
 # through 2026-12-31; from 2027-01-01 Google's published rate is $1.50/$7.50
 # with cache reads at $0.15 — revisit then. Output covers thinking tokens.
@@ -296,6 +338,13 @@ cache_read = 0.0
 # Program and has no published rate. It is zero-rated here on purpose:
 # without its own stanza the '-' boundary would bill it at Flash rates,
 # and [shadow] below points doctor's estimate at gemini-3.8-flash instead.
+#
+# Gemini 4 Argon (announced 2026-09-30) is deliberately absent. It is
+# Fairwind-only so far, Google's API docs publish no model id for it, and
+# the rate card has no row; the announced introductory $2/$10 (cached
+# $0.10, then $4/$20) is a press figure without an id to key it on. No
+# existing key captures a gemini-4 id, so doctor reports it as unpriced
+# rather than mispriced. Add a stanza once the id and the card row appear.
 
 [models."gemini-3.8-flash"]
 input = 0.75
@@ -359,10 +408,20 @@ cache_read = 0.002
 
 # --- xAI ---------------------------------------------------------------------
 #
-# Verified 2026-09-06 against https://docs.x.ai/docs/models. Short-context
-# row; a prompt of 200K tokens or more bills the whole request at 2x
-# ($4/$1/$12). xAI publishes no cache-write charge, so both write buckets
-# equal input.
+# Verified 2026-10-02 against https://docs.x.ai/docs/models and
+# https://docs.x.ai/docs/models/grok-4.7 (xAI now publishes as SpaceXAI).
+# Short-context row; a prompt of 200K tokens or more bills the whole
+# request at 2x ($4/$1/$12). xAI publishes no cache-write charge, so both
+# write buckets equal input. grok-4.7 kept grok-4.6's rates, but a point
+# release is not a '-' extension of the one before it, so it needs its own
+# stanza.
+
+[models."grok-4.7"]
+input = 2.0
+output = 6.0
+cache_write_5m = 2.0
+cache_write_1h = 2.0
+cache_read = 0.50
 
 [models."grok-4.6"]
 input = 2.0
@@ -403,8 +462,13 @@ cache_read = 0.016
 # --- Ollama Cloud -----------------------------------------------------------
 #
 # Ollama Cloud is metered per token, so these ids carry real rates and their
-# spend lands in every report total. Verified 2026-09-06 against the pricing
-# table published at ollama.com.
+# spend lands in every report total. Verified 2026-10-02 against the pricing
+# table published at ollama.com/pricing.
+#
+# deepseek-v4-flash, glm-5.1, and qwen3.5:397b have since dropped off that
+# table, and deepseek-v4.1-flash took V4 Flash's place. Their stanzas keep
+# the rate verified on 2026-09-06, because older transcripts still carry
+# those ids.
 #
 # Ollama publishes no cache-WRITE rate, so both write buckets are 0 here
 # rather than derived from the input rate: an invented multiplier would be a
@@ -433,11 +497,27 @@ cache_read = 0.016
 # (qwen3.8:27b, gemma4:12b, ...) stay free automatically: the local rule
 # applies to ':' ids with no pricing entry.
 #
-# deepseek-v4-flash and deepseek-v4-pro carry Ollama's PEAK rate (12:00 to
-# 18:00 UTC, Monday to Friday); off-peak they cost exactly half
-# ($0.22/$0.007/$0.66 and $0.66/$0.022/$1.98). tycho prices by model, not by
-# hour, so this is the upper bound — override if your traffic is mostly
-# off-peak.
+# The deepseek rows carry Ollama's PEAK rate (12:00 to 18:00 UTC, Monday to
+# Friday); off-peak they cost exactly half ($0.15/$0.003/$0.60 for
+# deepseek-v4.1-flash, $0.66/$0.022/$1.98 for deepseek-v4-pro, and
+# $0.22/$0.007/$0.66 for the retired deepseek-v4-flash). tycho prices by
+# model, not by hour, so this is the upper bound. Override it if your
+# traffic is mostly off-peak. deepseek-v4.1-flash is not a '-' extension of
+# deepseek-v4-flash, so it needs its own pair of stanzas.
+
+[models."deepseek-v4.1-flash"]
+input = 0.30
+output = 1.20
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.006
+
+[models."deepseek-v4.1-flash:cloud"]
+input = 0.30
+output = 1.20
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.006
 
 [models."deepseek-v4-flash"]
 input = 0.44

@@ -157,6 +157,8 @@ mod tests {
             "claude-mythos-5",
             "claude-fable-5-1",
             "claude-mythos-5-1",
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
             "claude-opus-5",
             "claude-opus-4-8",
             "claude-opus-4-7",
@@ -167,6 +169,9 @@ mod tests {
             "gpt-5.6-terra",
             "gpt-5.6-luna",
             "gpt-6-astra",
+            "gpt-6.1-sol",
+            "gpt-6-sol",
+            "gpt-6-luna",
             "gpt-5.6-cyber",
             "gpt-5.5",
             "gpt-5.5-pro",
@@ -183,9 +188,11 @@ mod tests {
             "gemini-3.7-flash",
             "muse-spark-1.3",
             "muse-spark-1.3-contributor",
+            "grok-4.7",
             "grok-4.6",
             "qwen3.8-max",
             "qwen3.8-flash",
+            "deepseek-v4.1-flash:cloud",
         ] {
             assert!(table.lookup(model).is_some(), "missing rates for {model}");
         }
@@ -290,6 +297,29 @@ mod tests {
         assert_eq!(table.lookup("claude-fable-5").unwrap().cache_read, dec("1"));
     }
 
+    /// Opus 5.5 is cheaper than Opus 5 and bills cache reads at 0.05x input.
+    /// Without its own stanza the '-' boundary would resolve
+    /// `claude-opus-5-5` onto `claude-opus-5` and charge $5/$25 with $0.50
+    /// cache reads where Anthropic charges $4/$20 and $0.20.
+    #[test]
+    fn opus_5_5_does_not_inherit_opus_5_rates() {
+        let table = PricingTable::embedded();
+        let opus55 = table.lookup("claude-opus-5-5").unwrap();
+        assert_eq!(opus55.input, dec("4"));
+        assert_eq!(opus55.output, dec("20"));
+        assert_eq!(opus55.cache_write_5m, dec("5"));
+        assert_eq!(opus55.cache_write_1h, dec("8"));
+        assert_eq!(opus55.cache_read, dec("0.2"));
+        let sonnet55 = table.lookup("claude-sonnet-5-5").unwrap();
+        assert_eq!(sonnet55.input, dec("2"));
+        assert_eq!(sonnet55.output, dec("10"));
+        assert_eq!(sonnet55.cache_write_5m, dec("2.5"));
+        assert_eq!(sonnet55.cache_write_1h, dec("4"));
+        assert_eq!(sonnet55.cache_read, dec("0.2"));
+        // The 5.0 stanza keeps its own rates.
+        assert_eq!(table.lookup("claude-opus-5").unwrap().input, dec("5"));
+    }
+
     /// OpenAI's flagship rate card prints a cache-write column at 1.25x input,
     /// and the GPT-5.6 family was repriced after the July verification.
     #[test]
@@ -315,6 +345,31 @@ mod tests {
             table.lookup("gpt-daybreak-red-latest").unwrap().input,
             dec("12.5")
         );
+    }
+
+    /// GPT-6 Sol and GPT-6.1 Sol share every rate except cached input, where
+    /// 6.1 bills half. Neither id is a '-' extension of the other, so each
+    /// needs its own stanza.
+    #[test]
+    fn gpt_6_family_carries_the_october_rate_card() {
+        let table = PricingTable::embedded();
+        let sol = table.lookup("gpt-6-sol").unwrap();
+        assert_eq!(sol.input, dec("2"));
+        assert_eq!(sol.output, dec("10"));
+        assert_eq!(sol.cache_write_5m, dec("2.5"));
+        assert_eq!(sol.cache_write_1h, dec("2.5"));
+        assert_eq!(sol.cache_read, dec("0.2"));
+        let sol61 = table.lookup("gpt-6.1-sol").unwrap();
+        assert_eq!(sol61.input, dec("2"));
+        assert_eq!(sol61.output, dec("10"));
+        assert_eq!(sol61.cache_write_5m, dec("2.5"));
+        assert_eq!(sol61.cache_read, dec("0.1"));
+        let luna = table.lookup("gpt-6-luna").unwrap();
+        assert_eq!(luna.input, dec("0.1"));
+        assert_eq!(luna.output, dec("0.5"));
+        assert_eq!(luna.cache_write_5m, dec("0.125"));
+        assert_eq!(luna.cache_write_1h, dec("0.125"));
+        assert_eq!(luna.cache_read, dec("0.01"));
     }
 
     /// Two "cyber" variants, two different answers. gpt-5.6-cyber has a
@@ -377,6 +432,34 @@ mod tests {
         assert_eq!(grok.input, dec("2"));
         assert_eq!(grok.output, dec("6"));
         assert_eq!(grok.cache_read, dec("0.5"));
+    }
+
+    /// A point release is never a '-' extension of the one before it:
+    /// `grok-4.6` cannot match `grok-4.7`, and `deepseek-v4-flash` cannot
+    /// match `deepseek-v4.1-flash`. Without their own stanzas the first goes
+    /// unpriced and the `:cloud` form of the second falls under the local
+    /// rule, so metered spend reports as free.
+    #[test]
+    fn point_releases_need_their_own_stanzas() {
+        let table = PricingTable::embedded();
+        let grok = table.lookup("grok-4.7").unwrap();
+        assert_eq!(grok.input, dec("2"));
+        assert_eq!(grok.output, dec("6"));
+        assert_eq!(grok.cache_write_5m, dec("2"));
+        assert_eq!(grok.cache_read, dec("0.5"));
+        for id in ["deepseek-v4.1-flash", "deepseek-v4.1-flash:cloud"] {
+            let flash = table.lookup(id).unwrap();
+            assert_eq!(flash.input, dec("0.3"), "{id}");
+            assert_eq!(flash.output, dec("1.2"), "{id}");
+            assert_eq!(flash.cache_read, dec("0.006"), "{id}");
+            assert_eq!(flash.cache_write_5m, dec("0"), "{id}");
+        }
+        // The retired V4 Flash row keeps its last published rate for
+        // historical transcripts.
+        assert_eq!(
+            table.lookup("deepseek-v4-flash").unwrap().input,
+            dec("0.44")
+        );
     }
 
     #[test]
