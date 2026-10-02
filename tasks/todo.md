@@ -1,6 +1,6 @@
 # tycho — task state
 
-## Unpriced Gemini Flash models (2026-10-02), committed, not released
+## Unpriced Gemini Flash models (2026-10-02), released as v0.10.2
 
 Vinny asked to fix the two unpriced Gemini Flash ids found during the
 v0.10.0 round. Rates come from Google's live card on 2026-10-02.
@@ -14,13 +14,13 @@ v0.10.0 round. Rates come from Google's live card on 2026-10-02.
 - [x] fmt, clippy, and 224 tests green; a 1M-in, 1M-out probe per id
       prices 3.5 Flash at $10.50, Flash-Lite at $2.80, 3.6 Flash at $4.50,
       and Cyber at $0 (doctor shadow estimate $10.50)
-- [ ] release as v0.10.2: held until Vinny confirms the push
+- [x] released as v0.10.2 on Vinny's go-ahead: bump `51b09f0`, tag
+      v0.10.2, cargo-dist run 37029705796 green (10 jobs), formula on the
+      tap at 0.10.2, local `brew upgrade` to 0.10.2, and the installed
+      binary prices the probe the same as the dev build
 
 ### Resuming from here
 
-- **Not pushed.** `main` is one commit ahead of origin plus this note. To
-  ship it, follow the release memory: bump to 0.10.2, tag, and let
-  cargo-dist publish the formula.
 - **The guards are the point.** A new `gemini-3.5-flash` key matches every
   id one '-' boundary past it, so Flash-Lite would have billed 5x on input
   without its own stanza.
