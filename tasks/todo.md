@@ -1,5 +1,34 @@
 # tycho — task state
 
+## Unpriced Gemini Flash models (2026-10-02), committed, not released
+
+Vinny asked to fix the two unpriced Gemini Flash ids found during the
+v0.10.0 round. Rates come from Google's live card on 2026-10-02.
+
+- [x] red: `older_gemini_flash_tiers_carry_their_own_rates` failed with
+      "missing rates for gemini-3.6-flash"
+- [x] green (`ee9dfd2`): gemini-3.6-flash ($0.75/$3.75, introductory
+      through 2026-12-31), gemini-3.5-flash ($1.50/$9), and two guard
+      stanzas: gemini-3.5-flash-lite at its own $0.30/$2.50, and
+      gemini-3.5-flash-cyber zero-rated with a [shadow] reference
+- [x] fmt, clippy, and 224 tests green; a 1M-in, 1M-out probe per id
+      prices 3.5 Flash at $10.50, Flash-Lite at $2.80, 3.6 Flash at $4.50,
+      and Cyber at $0 (doctor shadow estimate $10.50)
+- [ ] release as v0.10.2: held until Vinny confirms the push
+
+### Resuming from here
+
+- **Not pushed.** `main` is one commit ahead of origin plus this note. To
+  ship it, follow the release memory: bump to 0.10.2, tag, and let
+  cargo-dist publish the formula.
+- **The guards are the point.** A new `gemini-3.5-flash` key matches every
+  id one '-' boundary past it, so Flash-Lite would have billed 5x on input
+  without its own stanza.
+- **gemini-3.5-flash-cyber is an inferred id.** Google publishes no API id
+  or rate for Gemini 3.5 Flash Cyber (it runs inside CodeMender). The key
+  follows the 3.8 naming and costs nothing if the id never appears.
+- **The dev corpus has no Gemini usage**, so its totals don't move.
+
 ## gpt-5.5-cyber price fix (2026-10-02), released as v0.10.1
 
 Vinny asked for the fix found during the v0.10.0 round. `gpt-5.5-cyber`
@@ -59,8 +88,8 @@ URLs sit in the block comments of `pricing/default.toml`.
   price (through 2026-12-31).
 - **Found outside this task, not acted on:**
   - `gpt-5.5-cyber` resolved onto `gpt-5.5`; fixed in v0.10.1 (above).
-  - `gemini-3.6-flash` and `gemini-3.5-flash` are on Google's card with no
-    stanza (unpriced, not mispriced).
+  - `gemini-3.6-flash` and `gemini-3.5-flash` had no stanza; priced in
+    `ee9dfd2` (above).
   - The README's OpenAI caveat still says "Priority"; OpenAI renamed it
     Fast mode on 2026-07-30.
 
