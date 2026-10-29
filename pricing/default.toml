@@ -1,15 +1,23 @@
 # tycho default pricing — USD per million tokens.
 #
-# Source: Anthropic model pricing reference, verified 2026-10-02 against
+# Source: Anthropic model pricing reference, verified 2026-10-29 against
 # https://platform.claude.com/docs/en/about-claude/pricing.
 # Cache rates derive from Anthropic's published multipliers on the input
 # rate: 5-minute cache write = 1.25x, 1-hour cache write = 2x, cache
-# read = 0.1x — except claude-fable-5-1 and claude-mythos-5-1, which
-# Anthropic bills at 0.025x for cache reads ($0.25), and claude-opus-5-5
-# at 0.05x ($0.20). Those need their own stanzas: the '-' boundary rule
-# would otherwise resolve claude-fable-5-1 onto claude-fable-5 and
-# claude-opus-5-5 onto claude-opus-5, overcharging on the bucket that
-# dominates agentic sessions (and, for Opus 5.5, on every bucket).
+# read = 0.1x. Cache reads have two exceptions. claude-fable-5-1 and
+# claude-mythos-5-1 bill at 0.025x ($0.25). claude-opus-5-5 and
+# claude-sonnet-5-5 bill at 0.05x ($0.20 and $0.10); Sonnet 5.5 moved there
+# from 0.1x on 2026-10-07. Each needs its own stanza: the '-' boundary rule
+# would otherwise resolve claude-fable-5-1 onto claude-fable-5, and the 5.5
+# ids onto their 5.0 stanzas, overcharging on the bucket that dominates
+# agentic sessions (and, for Opus 5.5, on every bucket).
+#
+# Anthropic prices claude-haiku-5-5 (launched 2026-10-07) by prompt length.
+# A request whose prompt passes 100K tokens, counting cache reads and
+# writes, pays 5x on every bucket ($0.50/$2.50, cache read $0.05). tycho
+# prices each model at one rate, so the stanza carries the short-prompt
+# row, and requests with long prompts cost more than tycho reports.
+# Override the stanza if most of your Haiku 5.5 traffic runs long.
 #
 # claude-sonnet-5 is $2/$10. That began as an introductory rate billed
 # through 2026-08-31, and earlier revisions of this file said to raise it
@@ -27,7 +35,7 @@
 # own rates (e.g. a future gpt-5.5-codex) still need explicit entries —
 # a bare "gpt-5.5" entry would otherwise price them at API rates.
 #
-# OpenAI rates were verified 2026-10-02 against
+# OpenAI rates were verified 2026-10-29 against
 # https://developers.openai.com/api/docs/pricing (append .md to read the
 # collapsed "All models" rows). They use Standard API rates.
 # For models with separate short/long-context rows, these defaults use the
@@ -35,12 +43,15 @@
 # output for the whole request once a prompt passes 272K tokens);
 # override them if your logs should be billed at long-context, Batch, Flex,
 # Fast mode, data-residency, or subscription-plan rates. The flagship rate
-# card prints a cache-write column at 1.25x input, and those stanzas carry
-# it in both write buckets; the older rows (gpt-5.5 and earlier, codex,
+# card prints two cache-write columns: 30-minute retention at 1.25x input
+# and 12-hour retention at 2.5x. Those stanzas carry the 30-minute rate in
+# both write buckets; the older rows (gpt-5.5 and earlier, codex,
 # chat-latest) publish no write charge, so cache_write_* matches input
 # there. Cached input is represented as cache_read either way. Codex
 # rollouts record no cache-write token count at all, so the write rate only
-# reaches a total through Pi's transcripts.
+# reaches a total through Pi's transcripts. Pi records one cacheWrite count
+# with no retention, and tycho files it under 5m, so the 12-hour rate would
+# never reach a total.
 #
 # gpt-6-sol and gpt-6.1-sol share every rate except cached input, where
 # 6.1 bills half ($0.10 against $0.20). Neither id is a '-' extension of
@@ -136,7 +147,7 @@ input = 2.0
 output = 10.0
 cache_write_5m = 2.5
 cache_write_1h = 4.0
-cache_read = 0.2
+cache_read = 0.10
 
 [models."claude-sonnet-5"]
 input = 2.0
@@ -151,6 +162,13 @@ output = 15.0
 cache_write_5m = 3.75
 cache_write_1h = 6.0
 cache_read = 0.3
+
+[models."claude-haiku-5-5"]
+input = 0.10
+output = 0.50
+cache_write_5m = 0.125
+cache_write_1h = 0.20
+cache_read = 0.01
 
 [models."claude-haiku-4-5"]
 input = 1.0
@@ -172,6 +190,13 @@ output = 10.0
 cache_write_5m = 2.5
 cache_write_1h = 2.5
 cache_read = 0.10
+
+[models."gpt-6.1-terra"]
+input = 1.0
+output = 5.0
+cache_write_5m = 1.25
+cache_write_1h = 1.25
+cache_read = 0.05
 
 [models."gpt-6-sol"]
 input = 2.0
@@ -336,33 +361,59 @@ cache_read = 0.0
 
 # --- Google Gemini API -------------------------------------------------------
 #
-# Verified 2026-10-02 against https://ai.google.dev/gemini-api/docs/pricing
-# (paid tier). $0.75/$3.75 is introductory pricing for the 3.8, 3.7, and 3.6
-# Flash models through 2026-12-31; from 2027-01-01 Google's published rate is
-# $1.50/$7.50 with cache reads at $0.15, so revisit then. gemini-3.5-flash
-# carries no introductory rate: it's $1.50/$9 today. Output covers thinking
-# tokens.
+# Verified 2026-10-29 against https://ai.google.dev/gemini-api/docs/pricing
+# (paid tier). $0.75/$3.75 is introductory pricing for the 3.8 and 3.6 Flash
+# models through 2026-12-31; from 2027-01-01 Google's published rate is
+# $1.50/$7.50 with cache reads at $0.15, so revisit then. Output covers
+# thinking tokens.
 # Google bills explicit-cache creation at the standard input rate plus a
 # per-hour storage fee tycho cannot see, so both write buckets equal input.
 #
-# gemini-3.8-flash-cyber is available only through Google's Fairwind
-# Program and has no published rate. It is zero-rated here on purpose:
-# without its own stanza the '-' boundary would bill it at Flash rates,
-# and [shadow] below points doctor's estimate at gemini-3.8-flash instead.
+# gemini-4-argon (generally available 2026-10-13) is $2/$10 with cache reads
+# at $0.10, an introductory rate through 2026-11-30. From 2026-12-01 it's
+# $4/$20 with cache reads at $0.20, so revisit then. Argon supports implicit
+# caching only, so any write tokens bill as plain input.
+#
+# Google deprecated gemini-3.7-flash and gemini-3.5-flash on 2026-10-08 and
+# now routes their requests to gemini-3.8-flash and gemini-3.6-flash. Both
+# stanzas keep their last published rate for older transcripts: 3.7 Flash
+# matched 3.8 Flash, and 3.5 Flash had no introductory rate at $1.50/$9.
+#
+# The Cyber builds sit one '-' boundary past their base models, so each
+# needs its own stanza or it bills at the base model's discounted rate.
+# Google's API docs price neither, but Vertex AI does, verified 2026-10-29
+# against https://cloud.google.com/vertex-ai/generative-ai/pricing (global
+# endpoint). Neither gets the promotional pricing. gemini-3.8-flash-cyber
+# bills Flash's post-introductory $1.50/$7.50 today, and
+# gemini-4-argon-cyber-permissive bills Argon's $4/$20.
 #
 # The gemini-3.5-flash key also matches every id one '-' boundary past it,
 # so two guard stanzas sit beside it. gemini-3.5-flash-lite carries its own
 # published rate ($0.30/$2.50). Gemini 3.5 Flash Cyber runs inside Google
 # DeepMind's CodeMender agent with no public rate and no published API id;
 # gemini-3.5-flash-cyber is the id the 3.8 naming implies, zero-rated with a
-# [shadow] reference like its 3.8 sibling. An unused key costs nothing.
+# [shadow] reference. An unused key costs nothing.
 #
-# Gemini 4 Argon (announced 2026-09-30) is deliberately absent. It is
-# Fairwind-only so far, Google's API docs publish no model id for it, and
-# the rate card has no row; the announced introductory $2/$10 (cached
-# $0.10, then $4/$20) is a press figure without an id to key it on. No
-# existing key captures a gemini-4 id, so doctor reports it as unpriced
-# rather than mispriced. Add a stanza once the id and the card row appear.
+# Gemini 4 Carbon (announced 2026-10-28) is deliberately absent. It's
+# Fairwind-only so far, and neither Google's API docs nor Vertex AI publish
+# a model id or a rate for it. The announced introductory $2/$10 (cached
+# $0.10, then $4/$20) is a press figure without an id to key it on. A
+# gemini-4-carbon id matches no existing key, so doctor reports it as
+# unpriced rather than mispriced.
+
+[models."gemini-4-argon"]
+input = 2.0
+output = 10.0
+cache_write_5m = 2.0
+cache_write_1h = 2.0
+cache_read = 0.10
+
+[models."gemini-4-argon-cyber-permissive"]
+input = 4.0
+output = 20.0
+cache_write_5m = 4.0
+cache_write_1h = 4.0
+cache_read = 0.20
 
 [models."gemini-3.8-flash"]
 input = 0.75
@@ -379,11 +430,11 @@ cache_write_1h = 0.75
 cache_read = 0.075
 
 [models."gemini-3.8-flash-cyber"]
-input = 0.0
-output = 0.0
-cache_write_5m = 0.0
-cache_write_1h = 0.0
-cache_read = 0.0
+input = 1.50
+output = 7.50
+cache_write_5m = 1.50
+cache_write_1h = 1.50
+cache_read = 0.15
 
 [models."gemini-3.6-flash"]
 input = 0.75
@@ -415,14 +466,27 @@ cache_read = 0.0
 
 # --- Meta Model API ----------------------------------------------------------
 #
-# Verified 2026-09-06 against
+# Verified 2026-10-29 against
 # https://developer.meta.com/ai/products/meta-model-api/. Meta publishes no
 # cache-write charge, so both write buckets equal input; "cached input"
-# maps to cache_read. Each version ships in two tiers, and the contributor
-# id sits one '-' boundary past the standard one, so it needs its own
-# stanza or muse-spark-1.3-contributor bills at 12.5x what Meta charges.
-# Muse Glimmer is open weights with no Model API rate; a local pull carries
-# a ':' tag and stays free under the local rule.
+# maps to cache_read. Each Spark version ships in two tiers, and the
+# contributor id sits one '-' boundary past the standard one, so it needs
+# its own stanza or muse-spark-1.3-contributor bills at 12.5x what Meta
+# charges. Muse Glimmer is open weights with no Model API rate; a local
+# pull carries a ':' tag and stays free under the local rule.
+#
+# muse-wonder-1.0 (2026-10-12) is $4/$20 with cached input at $0.20.
+# muse-wonder-full-1.0 is a Muse Code subscription with no Model API rate,
+# so it carries no stanza. Keying Wonder on its versioned id keeps Full
+# from inheriting Wonder's rate through the '-' boundary. Muse Spark Open
+# has no Model API row; its hosted form is in the Ollama Cloud block.
+
+[models."muse-wonder-1.0"]
+input = 4.0
+output = 20.0
+cache_write_5m = 4.0
+cache_write_1h = 4.0
+cache_read = 0.20
 
 [models."muse-spark-1.3"]
 input = 1.25
@@ -454,7 +518,7 @@ cache_read = 0.002
 
 # --- xAI ---------------------------------------------------------------------
 #
-# Verified 2026-10-02 against https://docs.x.ai/docs/models and
+# Verified 2026-10-29 against https://docs.x.ai/docs/models and
 # https://docs.x.ai/docs/models/grok-4.7 (xAI now publishes as SpaceXAI).
 # Short-context row; a prompt of 200K tokens or more bills the whole
 # request at 2x ($4/$1/$12). xAI publishes no cache-write charge, so both
@@ -478,7 +542,7 @@ cache_read = 0.50
 
 # --- Alibaba Cloud Model Studio (Qwen) ---------------------------------------
 #
-# International (Singapore) pay-as-you-go rates, verified 2026-09-06 against
+# International (Singapore) pay-as-you-go rates, verified 2026-10-29 against
 # https://www.alibabacloud.com/help/en/model-studio/qwen3-8-max and
 # https://www.alibabacloud.com/help/en/model-studio/qwen3-8-flash. The
 # Chinese-mainland endpoint is priced separately. cache_read is the
@@ -505,11 +569,59 @@ cache_write_5m = 0.20
 cache_write_1h = 0.20
 cache_read = 0.016
 
+# --- Moonshot AI (Kimi API) --------------------------------------------------
+#
+# Verified 2026-10-29 against https://platform.kimi.ai/docs/pricing/chat
+# (the page fills its tables in the browser, so the .md twin comes back
+# empty). Only the ids Moonshot alone serves, or that the Ollama stanzas
+# below would misprice, live here.
+#
+# kimi-k3.1-pro (2026-10-23) bills cache writes by TTL: $2 at 5 minutes and
+# $4 at 1 hour. Its highspeed tier costs twice as much on every bucket
+# except cache reads. It sits one '-' boundary past the standard id, so it
+# needs its own stanza. kimi-k2.7-code-highspeed had the same problem: it
+# resolved onto the kimi-k2.7-code stanza at half its price. Moonshot
+# prints no write charge for the K2 series, so its write buckets equal
+# input.
+#
+# kimi-k3, kimi-k2.7-code, and kimi-k2.6 keep their Ollama stanzas, whose
+# input, output, and cached rates match Moonshot's card. Moonshot also
+# bills kimi-k3 cache writes ($3 at 5 minutes, $6 at 1 hour), which the
+# shared bare id carries as 0. Moonshot promises K3.1 Pro open weights by
+# 2026-11-04; add a `:cloud` pair if Ollama hosts it.
+
+[models."kimi-k3.1-pro"]
+input = 2.0
+output = 10.0
+cache_write_5m = 2.0
+cache_write_1h = 4.0
+cache_read = 0.20
+
+[models."kimi-k3.1-pro-highspeed"]
+input = 4.0
+output = 20.0
+cache_write_5m = 4.0
+cache_write_1h = 8.0
+cache_read = 0.20
+
+[models."kimi-k2.7-code-highspeed"]
+input = 1.90
+output = 8.0
+cache_write_5m = 1.90
+cache_write_1h = 1.90
+cache_read = 0.38
+
 # --- Ollama Cloud -----------------------------------------------------------
 #
 # Ollama Cloud is metered per token, so these ids carry real rates and their
-# spend lands in every report total. Verified 2026-10-02 against the pricing
+# spend lands in every report total. Verified 2026-10-29 against the pricing
 # table published at ollama.com/pricing.
+#
+# The table gained mistral-large-4, muse-spark-open, and minimax-m3.1-flash
+# in October. minimax-m3.1-flash is not a '-' extension of minimax-m3, so
+# it needs its own pair. The table also lists clef, Cloudflare's decision
+# model, which answers on its own endpoint rather than as chat turns, so no
+# transcript tycho reads carries it.
 #
 # deepseek-v4-flash, glm-5.1, and qwen3.5:397b have since dropped off that
 # table, and deepseek-v4.1-flash took V4 Flash's place. Their stanzas keep
@@ -719,6 +831,20 @@ cache_write_5m = 0.0
 cache_write_1h = 0.0
 cache_read = 0.16
 
+[models."minimax-m3.1-flash"]
+input = 0.15
+output = 0.60
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.015
+
+[models."minimax-m3.1-flash:cloud"]
+input = 0.15
+output = 0.60
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.015
+
 [models."minimax-m3"]
 input = 0.60
 output = 2.40
@@ -747,6 +873,20 @@ cache_write_5m = 0.0
 cache_write_1h = 0.0
 cache_read = 0.06
 
+[models."mistral-large-4"]
+input = 0.68
+output = 2.09
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.07
+
+[models."mistral-large-4:cloud"]
+input = 0.68
+output = 2.09
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.07
+
 [models."mistral-large-3"]
 input = 0.50
 output = 1.50
@@ -760,6 +900,20 @@ output = 1.50
 cache_write_5m = 0.0
 cache_write_1h = 0.0
 cache_read = 0.50
+
+[models."muse-spark-open"]
+input = 1.25
+output = 4.25
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.15
+
+[models."muse-spark-open:cloud"]
+input = 1.25
+output = 4.25
+cache_write_5m = 0.0
+cache_write_1h = 0.0
+cache_read = 0.15
 
 [models."nemotron-3-nano"]
 input = 0.06
@@ -827,5 +981,4 @@ cache_read = 0.60
 "gpt-5.2-codex" = "gpt-5.4"
 # Restricted-program variant with no public rate; its base model is the
 # closest published figure.
-"gemini-3.8-flash-cyber" = "gemini-3.8-flash"
 "gemini-3.5-flash-cyber" = "gemini-3.5-flash"

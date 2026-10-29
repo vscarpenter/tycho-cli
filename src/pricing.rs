@@ -164,7 +164,9 @@ mod tests {
             "claude-opus-4-7",
             "claude-sonnet-5",
             "claude-sonnet-4-6",
+            "claude-haiku-5-5",
             "claude-haiku-4-5-20251001", // dated id resolves via prefix
+            "gpt-6.1-terra",
             "gpt-5.6-sol",
             "gpt-5.6-terra",
             "gpt-5.6-luna",
@@ -184,18 +186,26 @@ mod tests {
             "codex-auto-review",
             "codex-unknown",
             "gpt-5-chat-latest",
+            "gemini-4-argon",
+            "gemini-4-argon-cyber-permissive",
             "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3.5-flash-lite",
+            "muse-wonder-1.0",
             "muse-spark-1.3",
             "muse-spark-1.3-contributor",
             "grok-4.7",
             "grok-4.6",
             "qwen3.8-max",
             "qwen3.8-flash",
+            "kimi-k3.1-pro",
+            "kimi-k3.1-pro-highspeed",
             "deepseek-v4.1-flash:cloud",
+            "mistral-large-4:cloud",
+            "muse-spark-open:cloud",
+            "minimax-m3.1-flash:cloud",
         ] {
             assert!(table.lookup(model).is_some(), "missing rates for {model}");
         }
@@ -259,6 +269,22 @@ mod tests {
         assert_eq!(flash.output, dec("0.5"));
         let kimi = table.lookup("kimi-k3:cloud").unwrap();
         assert_eq!(kimi.output, dec("15"));
+        // October's new rows. minimax-m3.1-flash is not a '-' extension of
+        // minimax-m3, so without its own pair the `:cloud` id falls under
+        // the local rule and reports $0.
+        for (id, input, output, cached) in [
+            ("mistral-large-4", "0.68", "2.09", "0.07"),
+            ("muse-spark-open", "1.25", "4.25", "0.15"),
+            ("minimax-m3.1-flash", "0.15", "0.6", "0.015"),
+        ] {
+            for key in [id.to_string(), format!("{id}:cloud")] {
+                let rates = table.lookup(&key).unwrap();
+                assert_eq!(rates.input, dec(input), "{key}");
+                assert_eq!(rates.output, dec(output), "{key}");
+                assert_eq!(rates.cache_read, dec(cached), "{key}");
+                assert_eq!(rates.cache_write_5m, dec("0"), "{key}");
+            }
+        }
     }
 
     /// The cloud table adds a `gemma4` stanza. Locally-run quantization tags
@@ -303,7 +329,8 @@ mod tests {
     /// Opus 5.5 is cheaper than Opus 5 and bills cache reads at 0.05x input.
     /// Without its own stanza the '-' boundary would resolve
     /// `claude-opus-5-5` onto `claude-opus-5` and charge $5/$25 with $0.50
-    /// cache reads where Anthropic charges $4/$20 and $0.20.
+    /// cache reads where Anthropic charges $4/$20 and $0.20. Sonnet 5.5 moved
+    /// to the same 0.05x multiplier in October ($0.10, down from $0.20).
     #[test]
     fn opus_5_5_does_not_inherit_opus_5_rates() {
         let table = PricingTable::embedded();
@@ -318,9 +345,29 @@ mod tests {
         assert_eq!(sonnet55.output, dec("10"));
         assert_eq!(sonnet55.cache_write_5m, dec("2.5"));
         assert_eq!(sonnet55.cache_write_1h, dec("4"));
-        assert_eq!(sonnet55.cache_read, dec("0.2"));
+        assert_eq!(sonnet55.cache_read, dec("0.1"));
         // The 5.0 stanza keeps its own rates.
         assert_eq!(table.lookup("claude-opus-5").unwrap().input, dec("5"));
+        assert_eq!(
+            table.lookup("claude-sonnet-5").unwrap().cache_read,
+            dec("0.2")
+        );
+    }
+
+    /// Anthropic prices Haiku 5.5 by prompt length, and tycho prices per
+    /// model, so the stanza carries the row for prompts up to 100K tokens.
+    /// No existing key is a '-' prefix of `claude-haiku-5-5`, so without its
+    /// own stanza the model goes unpriced.
+    #[test]
+    fn haiku_5_5_carries_the_short_prompt_row() {
+        let table = PricingTable::embedded();
+        let haiku55 = table.lookup("claude-haiku-5-5").unwrap();
+        assert_eq!(haiku55.input, dec("0.1"));
+        assert_eq!(haiku55.output, dec("0.5"));
+        assert_eq!(haiku55.cache_write_5m, dec("0.125"));
+        assert_eq!(haiku55.cache_write_1h, dec("0.2"));
+        assert_eq!(haiku55.cache_read, dec("0.01"));
+        assert_eq!(table.lookup("claude-haiku-4-5").unwrap().input, dec("1"));
     }
 
     /// OpenAI's flagship rate card prints a cache-write column at 1.25x input,
@@ -373,14 +420,20 @@ mod tests {
         assert_eq!(luna.cache_write_5m, dec("0.125"));
         assert_eq!(luna.cache_write_1h, dec("0.125"));
         assert_eq!(luna.cache_read, dec("0.01"));
+        let terra = table.lookup("gpt-6.1-terra").unwrap();
+        assert_eq!(terra.input, dec("1"));
+        assert_eq!(terra.output, dec("5"));
+        assert_eq!(terra.cache_write_5m, dec("1.25"));
+        assert_eq!(terra.cache_write_1h, dec("1.25"));
+        assert_eq!(terra.cache_read, dec("0.05"));
     }
 
-    /// Two "cyber" variants, two different answers. gpt-5.6-cyber has a
-    /// published rate and is priced. gemini-3.8-flash-cyber is a restricted
-    /// program with no public rate, so it is zero-rated with a shadow
-    /// reference — without its own stanza the '-' boundary would bill it at
-    /// Flash rates, a guess printed as a number. gpt-5.5-cyber has a
-    /// published rate too; without its stanza it billed at gpt-5.5's $5/$30.
+    /// Every "cyber" variant sits one '-' boundary past its base model, and
+    /// none bills at the base rate. gpt-5.6-cyber and gpt-5.5-cyber have
+    /// published rates; without its stanza 5.5 Cyber billed at gpt-5.5's
+    /// $5/$30. Vertex AI prices gemini-3.8-flash-cyber at Flash's
+    /// post-introductory rate and gemini-4-argon-cyber-permissive at Argon's,
+    /// with no promotional discount on either.
     #[test]
     fn cyber_variants_never_inherit_their_base_model_rate() {
         let table = PricingTable::embedded();
@@ -402,12 +455,23 @@ mod tests {
         assert_eq!(flash.output, dec("3.75"));
         assert_eq!(flash.cache_read, dec("0.075"));
         let flash_cyber = table.lookup("gemini-3.8-flash-cyber").unwrap();
-        assert_eq!(flash_cyber.input, dec("0"));
-        assert_eq!(flash_cyber.output, dec("0"));
-        assert_eq!(
-            table.shadow_reference("gemini-3.8-flash-cyber"),
-            Some("gemini-3.8-flash")
-        );
+        assert_eq!(flash_cyber.input, dec("1.5"));
+        assert_eq!(flash_cyber.output, dec("7.5"));
+        assert_eq!(flash_cyber.cache_write_5m, dec("1.5"));
+        assert_eq!(flash_cyber.cache_read, dec("0.15"));
+        // Priced now, so it no longer needs a stand-in for doctor's estimate.
+        assert_eq!(table.shadow_reference("gemini-3.8-flash-cyber"), None);
+        let argon = table.lookup("gemini-4-argon").unwrap();
+        assert_eq!(argon.input, dec("2"));
+        assert_eq!(argon.output, dec("10"));
+        assert_eq!(argon.cache_write_5m, dec("2"));
+        assert_eq!(argon.cache_write_1h, dec("2"));
+        assert_eq!(argon.cache_read, dec("0.1"));
+        let argon_cyber = table.lookup("gemini-4-argon-cyber-permissive").unwrap();
+        assert_eq!(argon_cyber.input, dec("4"));
+        assert_eq!(argon_cyber.output, dec("20"));
+        assert_eq!(argon_cyber.cache_write_5m, dec("4"));
+        assert_eq!(argon_cyber.cache_read, dec("0.2"));
     }
 
     /// A gemini-3.5-flash key also matches every id one '-' boundary past
@@ -455,6 +519,40 @@ mod tests {
         assert_eq!(contributor.input, dec("0.1"));
         assert_eq!(contributor.output, dec("0.2"));
         assert_eq!(contributor.cache_read, dec("0.002"));
+        let wonder = table.lookup("muse-wonder-1.0").unwrap();
+        assert_eq!(wonder.input, dec("4"));
+        assert_eq!(wonder.output, dec("20"));
+        assert_eq!(wonder.cache_write_5m, dec("4"));
+        assert_eq!(wonder.cache_read, dec("0.2"));
+        // Wonder Full is a Muse Code subscription with no API rate. Keying
+        // the stanza on the versioned id keeps it from inheriting Wonder's.
+        assert!(table.lookup("muse-wonder-full-1.0").is_none());
+    }
+
+    /// Moonshot's highspeed tiers sit one '-' boundary past the standard id
+    /// and cost twice as much, so each needs its own stanza.
+    /// kimi-k2.7-code-highspeed used to resolve onto the kimi-k2.7-code
+    /// stanza at half its price.
+    #[test]
+    fn kimi_highspeed_tiers_do_not_inherit_the_standard_rate() {
+        let table = PricingTable::embedded();
+        let pro = table.lookup("kimi-k3.1-pro").unwrap();
+        assert_eq!(pro.input, dec("2"));
+        assert_eq!(pro.output, dec("10"));
+        assert_eq!(pro.cache_write_5m, dec("2"));
+        assert_eq!(pro.cache_write_1h, dec("4"));
+        assert_eq!(pro.cache_read, dec("0.2"));
+        let fast = table.lookup("kimi-k3.1-pro-highspeed").unwrap();
+        assert_eq!(fast.input, dec("4"));
+        assert_eq!(fast.output, dec("20"));
+        assert_eq!(fast.cache_write_5m, dec("4"));
+        assert_eq!(fast.cache_write_1h, dec("8"));
+        assert_eq!(fast.cache_read, dec("0.2"));
+        let code_fast = table.lookup("kimi-k2.7-code-highspeed").unwrap();
+        assert_eq!(code_fast.input, dec("1.9"));
+        assert_eq!(code_fast.output, dec("8"));
+        assert_eq!(code_fast.cache_read, dec("0.38"));
+        assert_eq!(table.lookup("kimi-k2.7-code").unwrap().input, dec("0.95"));
     }
 
     /// Model Studio snapshot ids (`qwen3.8-max-0902`) resolve onto the base
