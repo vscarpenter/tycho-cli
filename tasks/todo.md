@@ -1,5 +1,68 @@
 # tycho — task state
 
+## Pricing refresh: releases 2026-10-02 to 2026-10-29 (2026-10-29), released as v0.11.0
+
+Prompted by Vinny asking to review every LLM release, confirm the latest
+prices, and ship a new version. The list came from
+https://aireleasetracker.com/latest. Every rate was verified against the
+vendor's own card on 2026-10-29; the URLs sit in the block comments of
+`pricing/default.toml`.
+
+- [x] 1: tracker list read (Chrome; 14 releases since the last round, plus
+      Gemini 4 Argon carried over)
+- [x] 2: rates collected from Anthropic, OpenAI, Google (AI Studio and
+      Vertex AI), Meta, xAI, Alibaba, Moonshot, and Ollama Cloud, and every
+      existing stanza re-verified
+- [x] 3: red: two new tests plus new assertions and coverage entries; eight
+      tests failed, Sonnet 5.5 with `left: 0.2, right: 0.1`
+- [x] 4: green (`08126cf`): claude-haiku-5-5, gpt-6.1-terra,
+      gemini-4-argon, gemini-4-argon-cyber-permissive, muse-wonder-1.0,
+      kimi-k3.1-pro, kimi-k3.1-pro-highspeed, kimi-k2.7-code-highspeed, and
+      Ollama pairs for mistral-large-4, muse-spark-open, and
+      minimax-m3.1-flash. Sonnet 5.5 cache reads went to $0.10, and
+      gemini-3.8-flash-cyber went to $1.50/$7.50 without its shadow mapping
+- [x] 5: fmt, clippy (`--all-targets -D warnings`), and 226 tests green; a
+      probe of 1M input, output, and cache read per id matched hand math
+- [x] 6: bumped to 0.11.0 (`b375512`), pushed main, tag v0.11.0 pushed
+- [x] 7: cargo-dist run 40922099549 green (all 10 jobs), release published
+      with 5 platform archives, formula on the tap at 0.11.0, local `brew
+      upgrade` took 0.10.2 to 0.11.0, and the installed binary prices the
+      14-id probe the same as the dev build ($144.35)
+
+### Resuming from here
+
+- **Sonnet 5.5 was overbilled on cache reads.** Anthropic cut them from
+  $0.20 to $0.10 on 2026-10-07, and the release list never shows a price
+  change. On the dev corpus since 2026-10-01 (`--mode calculate`), Sonnet
+  5.5 dropped from $15.44 to $10.37, and the total moved from $2,142.78 to
+  $2,137.70. tycho prices by model, so usage before 2026-10-07 now prices
+  at $0.10 too.
+- **Haiku 5.5 is priced by prompt length.** The stanza carries the row for
+  prompts up to 100K tokens, and longer prompts bill at 5x. tycho has no
+  per-request tier, so long Claude Code prompts will under-report. The dev
+  corpus has no Haiku 5.5 usage yet. A per-request long-context tier would
+  fix this and cover the gpt-6 (272K) and Grok (200K) rows too, but it
+  changes the pricing schema and needs a spec first.
+- **Dates to revisit:** gemini-4-argon's $2/$10 ends 2026-11-30 (then
+  $4/$20, cache $0.20). gpt-5.6-sol's promotion holds through at least
+  2026-11-21. The Gemini Flash introductory rate ends 2026-12-31.
+- **Knowingly unpriced:** Gemini 4 Carbon (Fairwind-only, no id or rate),
+  muse-wonder-full-1.0 (Muse Code subscription with no API rate, so doctor
+  warns), the three Nemotron 3.5 open-weight models (not on Ollama Cloud),
+  and Ollama's clef (a decision endpoint, not chat). DeepSeek-V4.1-Flash-1017
+  resolves onto the deepseek-v4.1-flash stanza.
+- **Kimi K3.1 Pro has no `:cloud` pair yet.** Moonshot promises open
+  weights by 2026-11-04; add the pair if Ollama hosts it.
+- **Found outside this task, not acted on:**
+  - Bare ids that Ollama shares with the model maker's own API carry
+    Ollama's rates. Moonshot bills kimi-k3 cache writes ($3 at 5 minutes,
+    $6 at 1 hour) that the bare stanza carries as 0. Mistral's own price
+    for mistral-large-4 was not checked.
+  - OpenAI's card lists gpt-rosalind-research and gpt-rosalind-discovery
+    ($5/$25, trusted-access life sciences), and xAI's lists grok-build-0.1
+    ($1/$2). None came from the tracker, and none is priced.
+  - The README's OpenAI caveat still says "Priority" (carried over).
+
 ## Unpriced Gemini Flash models (2026-10-02), released as v0.10.2
 
 Vinny asked to fix the two unpriced Gemini Flash ids found during the
