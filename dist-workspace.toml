@@ -23,3 +23,8 @@ install-path = "CARGO_HOME"
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
+
+# dist 0.32.0 defaults this target to macos-14, which GitHub retires by 2026-11-02.
+# Drop this override once a dist upgrade stops defaulting to a retired image.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
