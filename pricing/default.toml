@@ -82,7 +82,9 @@
 # cached input at $1.50 and 30-minute writes at $18.75. It also matches no
 # other gpt-6 key and carries the short-context row; past 272K tokens OpenAI
 # bills $30/$112.50 with cached input at $3. The older gpt-rosalind-research
-# and gpt-rosalind-discovery ids ($5/$25) have no stanza.
+# and gpt-rosalind-discovery ids are $5/$25 with cached input at $0.50. The
+# card prints no cache-write charge and no long-context row for them, so
+# their write buckets match input.
 #
 # Some Codex session logs contain historical/private model labels that do not
 # appear on the current public API rate card. Those are explicitly zero-rated
@@ -228,6 +230,20 @@ output = 75.0
 cache_write_5m = 18.75
 cache_write_1h = 18.75
 cache_read = 1.5
+
+[models."gpt-rosalind-research"]
+input = 5.0
+output = 25.0
+cache_write_5m = 5.0
+cache_write_1h = 5.0
+cache_read = 0.5
+
+[models."gpt-rosalind-discovery"]
+input = 5.0
+output = 25.0
+cache_write_5m = 5.0
+cache_write_1h = 5.0
+cache_read = 0.5
 
 [models."gpt-6.1-sol"]
 input = 2.0

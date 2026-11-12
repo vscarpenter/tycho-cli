@@ -54,8 +54,10 @@ URLs sit in the block comments of `pricing/default.toml`.
     request and shipped as v0.12.1 (bump `4038a51`, cargo-dist run
     43153605907 green, formula on the tap, local `brew upgrade` to
     0.12.1). The installed binary prices a 1M input, output, and cache
-    read probe at $91.50 and $5.65. The two older Rosalind ids ($5/$25)
-    are still unpriced.
+    read probe at $91.50 and $5.65. gpt-rosalind-research and
+    gpt-rosalind-discovery ($5/$25, cached $0.50) got stanzas the same
+    night on branch `pricing/rosalind-research-and-discovery`, not pushed
+    and not in v0.12.1.
   - xAI's grok-build-0.1 ($1/$2) and the README's "Priority" wording carry
     over from the last round.
 

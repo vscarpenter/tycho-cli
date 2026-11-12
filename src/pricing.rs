@@ -179,6 +179,8 @@ mod tests {
             "gpt-5.6-cyber",
             "gpt-6-cyber",
             "gpt-6-rosalind",
+            "gpt-rosalind-research",
+            "gpt-rosalind-discovery",
             "gpt-5.5",
             "gpt-5.5-pro",
             "gpt-5.4-mini",
@@ -482,6 +484,16 @@ mod tests {
         assert_eq!(rosalind.cache_write_5m, dec("18.75"));
         assert_eq!(rosalind.cache_write_1h, dec("18.75"));
         assert_eq!(rosalind.cache_read, dec("1.5"));
+        // The two older Rosalind ids print no cache-write charge, so their
+        // write buckets match input.
+        for id in ["gpt-rosalind-research", "gpt-rosalind-discovery"] {
+            let rates = table.lookup(id).unwrap();
+            assert_eq!(rates.input, dec("5"), "{id}");
+            assert_eq!(rates.output, dec("25"), "{id}");
+            assert_eq!(rates.cache_write_5m, dec("5"), "{id}");
+            assert_eq!(rates.cache_write_1h, dec("5"), "{id}");
+            assert_eq!(rates.cache_read, dec("0.5"), "{id}");
+        }
     }
 
     /// Every "cyber" variant sits one '-' boundary past its base model, and
