@@ -36,9 +36,10 @@ URLs sit in the block comments of `pricing/default.toml`.
   from 2026-11-09 on. v0.12.0 fixes it.
 - **Three rates change on 2026-12-01.** gemini-4-argon and gemini-4-carbon
   both go to $4/$20 (cache $0.20), and OpenAI's card now ends gpt-5.6-sol's
-  promotion on 2026-11-30. The cloud routine set for 2026-11-30 covers
-  Argon only. Its brief predates Carbon, so the December PR needs Carbon
-  added by hand, plus whatever gpt-5.6-sol's post-promotion row says.
+  promotion on 2026-11-30. The cloud routine set for 2026-11-30 covers all
+  three since 2026-11-11. It changes gpt-5.6-sol only if OpenAI's card
+  prints the post-promotion rate, so re-read that card on Dec 1 if it
+  reports a skip.
 - **Two stanzas carry a short-prompt row.** muse-ember-1.0 bills 3x past
   200K tokens, and gpt-6-cyber bills $40/$150 past 272K. Both join Haiku
   5.5 on the list a per-request tier would fix.
