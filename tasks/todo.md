@@ -1,12 +1,11 @@
 # tycho — task state
 
-## Pricing refresh: releases 2026-10-29 to 2026-11-11 (2026-11-11), not released
+## Pricing refresh: releases 2026-10-29 to 2026-11-11 (2026-11-11), released as v0.12.0
 
 Prompted by Vinny asking to update pricing for the models released in the
 last two weeks. The list came from https://aireleasetracker.com/latest.
 Every rate was verified against the vendor's own card on 2026-11-11; the
-URLs sit in the block comments of `pricing/default.toml`. The work is on
-branch `pricing/november-2026-releases`, committed and not pushed.
+URLs sit in the block comments of `pricing/default.toml`.
 
 - [x] 1: tracker list read (Chrome; 5 releases since the last round, plus
       Gemini 4 Carbon, which got an id and a rate on 2026-11-10)
@@ -22,14 +21,19 @@ branch `pricing/november-2026-releases`, committed and not pushed.
       $0.70/$2.10
 - [x] 5: fmt, clippy (`--all-targets -D warnings`), and 227 tests green; a
       probe of 1M input, output, and cache read per id matched hand math
-- [ ] 6: release (bump, push, tag) waits for Vinny's go-ahead
+- [x] 6: released on Vinny's go-ahead: bumped to 0.12.0 (`30ed72d`), pushed
+      main, tag v0.12.0 pushed
+- [x] 7: cargo-dist run 43147772855 green, release published with 5
+      platform archives, formula on the tap at 0.12.0, local `brew upgrade`
+      took 0.11.0 to 0.12.0, and the installed binary prices the 12-id
+      probe the same as the dev build ($272.65)
 
 ### Resuming from here
 
 - **Fable 5.2 and Mythos 5.2 were overbilled for two days.** Both ids
   resolved onto the 5.0 stanzas at $10/$50 with $1 cache reads. Anthropic
-  charges $8/$40 with $0.20 cache reads, so v0.11.0 overstates any usage
-  since 2026-11-09 until this ships.
+  charges $8/$40 with $0.20 cache reads, so v0.11.0 overstated any usage
+  from 2026-11-09 on. v0.12.0 fixes it.
 - **Three rates change on 2026-12-01.** gemini-4-argon and gemini-4-carbon
   both go to $4/$20 (cache $0.20), and OpenAI's card now ends gpt-5.6-sol's
   promotion on 2026-11-30. The cloud routine set for 2026-11-30 covers
