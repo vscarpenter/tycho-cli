@@ -157,6 +157,8 @@ mod tests {
             "claude-mythos-5",
             "claude-fable-5-1",
             "claude-mythos-5-1",
+            "claude-fable-5-2",
+            "claude-mythos-5-2",
             "claude-opus-5-5",
             "claude-sonnet-5-5",
             "claude-opus-5",
@@ -175,6 +177,7 @@ mod tests {
             "gpt-6-sol",
             "gpt-6-luna",
             "gpt-5.6-cyber",
+            "gpt-6-cyber",
             "gpt-5.5",
             "gpt-5.5-pro",
             "gpt-5.4-mini",
@@ -188,12 +191,15 @@ mod tests {
             "gpt-5-chat-latest",
             "gemini-4-argon",
             "gemini-4-argon-cyber-permissive",
+            "gemini-4-carbon",
+            "gemini-4-carbon-cyber-permissive",
             "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3.5-flash-lite",
             "muse-wonder-1.0",
+            "muse-ember-1.0",
             "muse-spark-1.3",
             "muse-spark-1.3-contributor",
             "grok-4.7",
@@ -206,6 +212,10 @@ mod tests {
             "mistral-large-4:cloud",
             "muse-spark-open:cloud",
             "minimax-m3.1-flash:cloud",
+            "kimi-k3.1-pro:cloud",
+            "beam:cloud",
+            "mimo-v2.6-flash:cloud",
+            "mimo-v2.6-pro:cloud",
         ] {
             assert!(table.lookup(model).is_some(), "missing rates for {model}");
         }
@@ -273,9 +283,13 @@ mod tests {
         // minimax-m3, so without its own pair the `:cloud` id falls under
         // the local rule and reports $0.
         for (id, input, output, cached) in [
-            ("mistral-large-4", "0.68", "2.09", "0.07"),
+            ("mistral-large-4", "0.7", "2.1", "0.07"),
             ("muse-spark-open", "1.25", "4.25", "0.15"),
             ("minimax-m3.1-flash", "0.15", "0.6", "0.015"),
+            // November's new rows.
+            ("beam", "0.125", "0.4", "0.015"),
+            ("mimo-v2.6-flash", "0.14", "0.28", "0.0028"),
+            ("mimo-v2.6-pro", "0.435", "0.87", "0.0036"),
         ] {
             for key in [id.to_string(), format!("{id}:cloud")] {
                 let rates = table.lookup(&key).unwrap();
@@ -285,6 +299,19 @@ mod tests {
                 assert_eq!(rates.cache_write_5m, dec("0"), "{key}");
             }
         }
+        // Ollama hosts kimi-k3.1-pro at Moonshot's rates. Only the `:cloud`
+        // id is Ollama's alone, so it carries no write charge, and the bare
+        // id keeps Moonshot's.
+        let k31 = table.lookup("kimi-k3.1-pro:cloud").unwrap();
+        assert_eq!(k31.input, dec("2"));
+        assert_eq!(k31.output, dec("10"));
+        assert_eq!(k31.cache_read, dec("0.2"));
+        assert_eq!(k31.cache_write_5m, dec("0"));
+        assert_eq!(k31.cache_write_1h, dec("0"));
+        assert_eq!(
+            table.lookup("kimi-k3.1-pro").unwrap().cache_write_1h,
+            dec("4")
+        );
     }
 
     /// The cloud table adds a `gemma4` stanza. Locally-run quantization tags
@@ -324,6 +351,25 @@ mod tests {
         );
         // The 5.0 stanza keeps the standard multiplier.
         assert_eq!(table.lookup("claude-fable-5").unwrap().cache_read, dec("1"));
+    }
+
+    /// Fable 5.2 and Mythos 5.2 cost $8/$40, a fifth less than 5.1, and keep
+    /// the 0.025x cache-read multiplier ($0.20). Without their own stanzas
+    /// the '-' boundary would resolve both onto the 5.0 stanzas and charge
+    /// $10/$50 with $1 cache reads.
+    #[test]
+    fn fable_5_2_does_not_inherit_fable_5_rates() {
+        let table = PricingTable::embedded();
+        for id in ["claude-fable-5-2", "claude-mythos-5-2"] {
+            let rates = table.lookup(id).unwrap();
+            assert_eq!(rates.input, dec("8"), "{id}");
+            assert_eq!(rates.output, dec("40"), "{id}");
+            assert_eq!(rates.cache_write_5m, dec("10"), "{id}");
+            assert_eq!(rates.cache_write_1h, dec("16"), "{id}");
+            assert_eq!(rates.cache_read, dec("0.2"), "{id}");
+        }
+        // The 5.1 stanza keeps its own rates.
+        assert_eq!(table.lookup("claude-fable-5-1").unwrap().input, dec("10"));
     }
 
     /// Opus 5.5 is cheaper than Opus 5 and bills cache reads at 0.05x input.
@@ -472,6 +518,27 @@ mod tests {
         assert_eq!(argon_cyber.output, dec("20"));
         assert_eq!(argon_cyber.cache_write_5m, dec("4"));
         assert_eq!(argon_cyber.cache_read, dec("0.2"));
+        // gpt-6-cyber matches no other gpt-6 key, so it needs a stanza to be
+        // priced at all. It carries the short-context row.
+        let cyber6 = table.lookup("gpt-6-cyber").unwrap();
+        assert_eq!(cyber6.input, dec("20"));
+        assert_eq!(cyber6.output, dec("100"));
+        assert_eq!(cyber6.cache_write_5m, dec("25"));
+        assert_eq!(cyber6.cache_write_1h, dec("25"));
+        assert_eq!(cyber6.cache_read, dec("2"));
+        // Carbon launched at Argon's introductory rate, and its Cyber
+        // Permissive build gets no discount either.
+        let carbon = table.lookup("gemini-4-carbon").unwrap();
+        assert_eq!(carbon.input, dec("2"));
+        assert_eq!(carbon.output, dec("10"));
+        assert_eq!(carbon.cache_write_5m, dec("2"));
+        assert_eq!(carbon.cache_write_1h, dec("2"));
+        assert_eq!(carbon.cache_read, dec("0.1"));
+        let carbon_cyber = table.lookup("gemini-4-carbon-cyber-permissive").unwrap();
+        assert_eq!(carbon_cyber.input, dec("4"));
+        assert_eq!(carbon_cyber.output, dec("20"));
+        assert_eq!(carbon_cyber.cache_write_5m, dec("4"));
+        assert_eq!(carbon_cyber.cache_read, dec("0.2"));
     }
 
     /// A gemini-3.5-flash key also matches every id one '-' boundary past
@@ -527,6 +594,12 @@ mod tests {
         // Wonder Full is a Muse Code subscription with no API rate. Keying
         // the stanza on the versioned id keeps it from inheriting Wonder's.
         assert!(table.lookup("muse-wonder-full-1.0").is_none());
+        // Ember carries the row for prompts under 200K tokens.
+        let ember = table.lookup("muse-ember-1.0").unwrap();
+        assert_eq!(ember.input, dec("0.1"));
+        assert_eq!(ember.output, dec("0.5"));
+        assert_eq!(ember.cache_write_5m, dec("0.1"));
+        assert_eq!(ember.cache_read, dec("0.004"));
     }
 
     /// Moonshot's highspeed tiers sit one '-' boundary past the standard id
