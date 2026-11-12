@@ -178,6 +178,7 @@ mod tests {
             "gpt-6-luna",
             "gpt-5.6-cyber",
             "gpt-6-cyber",
+            "gpt-6-rosalind",
             "gpt-5.5",
             "gpt-5.5-pro",
             "gpt-5.4-mini",
@@ -202,6 +203,7 @@ mod tests {
             "muse-ember-1.0",
             "muse-spark-1.3",
             "muse-spark-1.3-contributor",
+            "muse-spark-1.1",
             "grok-4.7",
             "grok-4.6",
             "qwen3.8-max",
@@ -472,6 +474,14 @@ mod tests {
         assert_eq!(terra.cache_write_5m, dec("1.25"));
         assert_eq!(terra.cache_write_1h, dec("1.25"));
         assert_eq!(terra.cache_read, dec("0.05"));
+        // gpt-6-rosalind is the trusted-access life sciences model. No other
+        // gpt-6 key is a '-' prefix of it, so it needs its own stanza.
+        let rosalind = table.lookup("gpt-6-rosalind").unwrap();
+        assert_eq!(rosalind.input, dec("15"));
+        assert_eq!(rosalind.output, dec("75"));
+        assert_eq!(rosalind.cache_write_5m, dec("18.75"));
+        assert_eq!(rosalind.cache_write_1h, dec("18.75"));
+        assert_eq!(rosalind.cache_read, dec("1.5"));
     }
 
     /// Every "cyber" variant sits one '-' boundary past its base model, and
@@ -594,6 +604,12 @@ mod tests {
         // Wonder Full is a Muse Code subscription with no API rate. Keying
         // the stanza on the versioned id keeps it from inheriting Wonder's.
         assert!(table.lookup("muse-wonder-full-1.0").is_none());
+        // Spark 1.1 is still on Meta's card at the standard Spark rate.
+        let spark11 = table.lookup("muse-spark-1.1").unwrap();
+        assert_eq!(spark11.input, dec("1.25"));
+        assert_eq!(spark11.output, dec("4.25"));
+        assert_eq!(spark11.cache_write_5m, dec("1.25"));
+        assert_eq!(spark11.cache_read, dec("0.15"));
         // Ember carries the row for prompts under 200K tokens.
         let ember = table.lookup("muse-ember-1.0").unwrap();
         assert_eq!(ember.input, dec("0.1"));

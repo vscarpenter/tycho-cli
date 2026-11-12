@@ -49,11 +49,11 @@ URLs sit in the block comments of `pricing/default.toml`.
 - **Knowingly unpriced:** qwen4-max-preview (Token Plan only, no
   pay-as-you-go rate, retired after 2026-11-25).
 - **Found outside this task, not acted on:**
-  - OpenAI's card now lists gpt-6-rosalind ($15/$75, cached $1.50,
-    trusted-access life sciences) beside the two older Rosalind ids. None
-    came from the tracker, and none is priced.
-  - Meta's card lists muse-spark-1.1 ($1.25/$4.25, cached $0.15), which has
-    no stanza.
+  - gpt-6-rosalind ($15/$75, cached $1.50) and muse-spark-1.1
+    ($1.25/$4.25, cached $0.15) got stanzas later on 2026-11-11 at Vinny's
+    request. They sit on branch `pricing/rosalind-and-spark-1.1`, not
+    pushed and not in v0.12.0. The two older Rosalind ids ($5/$25) are
+    still unpriced.
   - xAI's grok-build-0.1 ($1/$2) and the README's "Priority" wording carry
     over from the last round.
 
