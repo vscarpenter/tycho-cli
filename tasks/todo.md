@@ -56,8 +56,9 @@ URLs sit in the block comments of `pricing/default.toml`.
     0.12.1). The installed binary prices a 1M input, output, and cache
     read probe at $91.50 and $5.65. gpt-rosalind-research and
     gpt-rosalind-discovery ($5/$25, cached $0.50) got stanzas the same
-    night on branch `pricing/rosalind-research-and-discovery`, not pushed
-    and not in v0.12.1.
+    night and shipped as v0.12.2 (bump `246f6e0`, cargo-dist run
+    43155799911 green, formula on the tap, local `brew upgrade` to
+    0.12.2). The installed binary prices the same probe at $30.50 each.
   - xAI's grok-build-0.1 ($1/$2) and the README's "Priority" wording carry
     over from the last round.
 
